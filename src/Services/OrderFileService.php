@@ -7,6 +7,7 @@ use Plenty\Plugin\Log\Loggable;
 use Plenty\Modules\Order\Models\Order;
 use Plenty\Modules\Document\Contracts\DocumentRepositoryContract;
 use Plenty\Modules\Frontend\Services\OrderPropertyFileService;
+use Plenty\Modules\Cloud\Storage\Contracts\StorageRepositoryContract;
 
 /**
  * Kopiert Dateien aus Auftragsmerkmalen (Typ "Datei", z. B. hochgeladene
@@ -144,20 +145,35 @@ class OrderFileService
         return $done;
     }
 
+    /** @var array Diagnose der letzten Dateizugriffe (fuer /attach?debug=1) */
+    public $diag = [];
+
     private function fetch(OrderPropertyFileService $fileService, string $key)
     {
-        $tries = [$key];
-        if (strpos($key, 'orderPropertyFiles/') === 0) {
-            $tries[] = substr($key, 19);
-        }
-        foreach ($tries as $k) {
+        $short = strpos($key, 'orderPropertyFiles/') === 0 ? substr($key, 19) : $key;
+        $tries = [
+            ['service', $key],
+            ['service', $short],
+            ['storage:orderPropertyFiles', $short],
+            ['storage:orderPropertyFiles', $key],
+        ];
+        foreach ($tries as $t) {
             try {
-                $obj = $fileService->getFile($k);
+                if ($t[0] === 'service') {
+                    $obj = $fileService->getFile($t[1]);
+                } else {
+                    /** @var StorageRepositoryContract $storage */
+                    $storage = pluginApp(StorageRepositoryContract::class);
+                    $obj = $storage->getObject('orderPropertyFiles', $t[1]);
+                }
+                $len = ($obj && isset($obj->body)) ? strlen((string)$obj->body) : -1;
+                $this->diag[] = $t[0] . ' ' . $t[1] . ' => ' . ($obj ? get_class($obj) : 'null') . ' body ' . $len;
                 if ($obj && isset($obj->body) && $obj->body !== '') {
                     return $obj;
                 }
             } catch (\Throwable $e) {
-                $this->logError('fetch ' . $k, $e);
+                $this->diag[] = $t[0] . ' ' . $t[1] . ' => EXC ' . $e->getMessage();
+                $this->logError('fetch ' . $t[1], $e);
             }
         }
         return null;
