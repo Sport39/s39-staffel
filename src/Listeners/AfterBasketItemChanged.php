@@ -5,7 +5,7 @@ namespace S39Staffel\Listeners;
 use S39Staffel\Services\StaffelService;
 
 /**
- * Nach jeder Aenderung im Warenkorb: Staffel ueber alle Varianten neu rechnen.
+ * Nach jeder Aenderung im Warenkorb: uebrige Positionen des Artikels nachziehen.
  */
 class AfterBasketItemChanged
 {
@@ -13,6 +13,9 @@ class AfterBasketItemChanged
     {
         /** @var StaffelService $service */
         $service = pluginApp(StaffelService::class);
-        $service->recalculate('after');
+        if (!$service->active()) {
+            return;
+        }
+        $service->recalculate();
     }
 }
