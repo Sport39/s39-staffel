@@ -5,7 +5,7 @@ namespace S39Staffel\Listeners;
 use S39Staffel\Services\StaffelService;
 
 /**
- * Testmodus 3: Preis direkt am Warenkorb-Modell setzen, bevor es gespeichert wird.
+ * Vor dem Speichern einer Position: Preis am Modell setzen.
  */
 class BeforeBasketItemChanged
 {
@@ -13,12 +13,11 @@ class BeforeBasketItemChanged
     {
         /** @var StaffelService $service */
         $service = pluginApp(StaffelService::class);
-        if (!$service->usesBeforeMode()) {
+        if (!$service->active()) {
             return;
         }
         try {
-            $basketItem = $event->getBasketItem();
-            $service->applyToModel($basketItem);
+            $service->applyToModel($event->getBasketItem());
         } catch (\Throwable $e) {
             $service->logError('before', $e);
         }
