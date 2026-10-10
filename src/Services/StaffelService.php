@@ -41,6 +41,9 @@ class StaffelService
     /** @var array Bericht des letzten Laufs (fuer Debug-Endpunkt) */
     private $report = [];
 
+    /** @var int|null Modus-Vorgabe fuer den Debug-Endpunkt */
+    private $modeOverride = null;
+
     public function __construct(ConfigRepository $config)
     {
         $this->config = $config;
@@ -59,6 +62,9 @@ class StaffelService
 
     public function mode(): int
     {
+        if ($this->modeOverride !== null) {
+            return (int)$this->modeOverride;
+        }
         return (int)$this->cfg('mode', 0);
     }
 
@@ -110,8 +116,9 @@ class StaffelService
 
     /* ---------------- Hauptlauf (After-Events) ---------------- */
 
-    public function recalculateWithReport(string $trigger): array
+    public function recalculateWithReport(string $trigger, $modeOverride = null): array
     {
+        $this->modeOverride = ($modeOverride === null || $modeOverride === '') ? null : (int)$modeOverride;
         $this->report = [];
         self::$running = false;
         $this->recalculate($trigger);
@@ -220,7 +227,9 @@ class StaffelService
             $tries[] = $base + ['price' => $row['price']];
         }
         if ($mode === 4) {
+            $tries[] = $base + ['price' => $row['price'], 'priceId' => $row['priceId']];
             $tries[] = $base + ['givenPrice' => $row['price'], 'useGivenPrice' => true, 'price' => $row['price'], 'priceId' => $row['priceId']];
+            $tries[] = $base + ['givenPrice' => $row['price'], 'useGivenPrice' => 1, 'price' => $row['price'], 'priceId' => $row['priceId'], 'rebate' => 0];
         }
         foreach ($tries as $data) {
             try {
