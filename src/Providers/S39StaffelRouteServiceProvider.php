@@ -11,5 +11,6 @@ class S39StaffelRouteServiceProvider extends RouteServiceProvider
     {
         $router->get('s39staffel/ping', 'S39Staffel\Controllers\PingController@ping');
         $router->get('s39staffel/run', 'S39Staffel\Controllers\PingController@run');
+        $router->get('s39staffel/run/{mode}', 'S39Staffel\Controllers\PingController@run');
     }
 }
