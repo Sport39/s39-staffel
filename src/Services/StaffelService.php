@@ -16,14 +16,14 @@ use Plenty\Modules\Account\Contact\Models\Contact;
 
 /**
  * Rechnet die Staffelpreise im Warenkorb ueber alle Varianten (Groessen)
- * eines Artikels zusammen und setzt den so ermittelten Preis je Position.
+ * eines Artikels zusammen.
  *
- * Testmodi (Plugin-Konfiguration "mode"):
- *  0 = aus, nur protokollieren
- *  1 = updateBasketItem(id, ['givenPrice' => x, 'useGivenPrice' => true])
- *  2 = updateBasketItem(id, ['price' => x])
- *  3 = Modell im Before-Event aendern ($basketItem->givenPrice / useGivenPrice / price)
- *  4 = 1, 2 und 3 nacheinander
+ * Plenty ermittelt Staffelpreise nur je Variante. Dieses Plugin zaehlt die
+ * Mengen aller Varianten eines Artikels zusammen und setzt je Position den
+ * Verkaufspreis, der fuer die Gesamtmenge gilt (als "givenPrice" am
+ * Warenkorb-Modell - der einzige Weg, den Plenty beim Speichern uebernimmt).
+ * Greift die Staffel nicht (mehr), wird der Fixpreis wieder freigegeben und
+ * Plenty rechnet wie gewohnt.
  */
 class StaffelService
 {
@@ -32,17 +32,8 @@ class StaffelService
     /** @var bool Schutz gegen Rekursion (updateBasketItem loest selbst Events aus) */
     private static $running = false;
 
-    /** @var array Zwischenspeicher: Variation-ID => Gruppenschluessel */
-    private static $groupCache = [];
-
     /** @var ConfigRepository */
     private $config;
-
-    /** @var array Bericht des letzten Laufs (fuer Debug-Endpunkt) */
-    private $report = [];
-
-    /** @var int|null Modus-Vorgabe fuer den Debug-Endpunkt */
-    private $modeOverride = null;
 
     public function __construct(ConfigRepository $config)
     {
@@ -60,30 +51,25 @@ class StaffelService
         return ($v === null || $v === '') ? $default : $v;
     }
 
-    public function mode(): int
+    private function flag(string $key, bool $default): bool
     {
-        if ($this->modeOverride !== null) {
-            return (int)$this->modeOverride;
-        }
-        return (int)$this->cfg('mode', 0);
+        $v = $this->cfg($key, $default);
+        return $v === true || $v === 'true' || $v === 1 || $v === '1';
     }
 
-    public function usesBeforeMode(): bool
+    public function active(): bool
     {
-        $m = $this->mode();
-        return $m === 3 || $m === 4;
+        return $this->flag('active', true);
     }
 
     private function verbose(): bool
     {
-        $v = $this->cfg('log', true);
-        return $v === true || $v === 'true' || $v === 1 || $v === '1';
+        return $this->flag('log', false);
     }
 
     private function log(string $key, array $data = [])
     {
-        $this->report[] = ['key' => $key, 'data' => $data];
-        if (!$this->verbose() && $key !== 'error') {
+        if (!$this->verbose()) {
             return;
         }
         try {
@@ -94,16 +80,6 @@ class StaffelService
 
     public function logError(string $where, \Throwable $e)
     {
-        $details = [];
-        try {
-            if ($e instanceof \Plenty\Exceptions\ValidationException) {
-                $bag = $e->getMessageBag();
-                $details = $bag ? $bag->toArray() : [];
-            }
-        } catch (\Throwable $x) {
-            $details = ['bag' => $x->getMessage()];
-        }
-        $this->report[] = ['key' => 'error', 'where' => $where, 'message' => $e->getMessage(), 'details' => $details, 'file' => $e->getFile() . ':' . $e->getLine()];
         try {
             $this->getLogger('S39Staffel')->error('S39Staffel::log.error', [
                 'where' => $where,
@@ -114,23 +90,13 @@ class StaffelService
         }
     }
 
-    /* ---------------- Hauptlauf (After-Events) ---------------- */
+    /* ---------------- After-Events: uebrige Positionen nachziehen ---------------- */
 
-    public function recalculateWithReport(string $trigger, $modeOverride = null): array
-    {
-        $this->modeOverride = ($modeOverride === null || $modeOverride === '') ? null : (int)$modeOverride;
-        $this->report = [];
-        self::$running = false;
-        $this->recalculate($trigger);
-        return $this->report;
-    }
-
-    public function recalculate(string $trigger)
+    public function recalculate()
     {
         if (self::$running) {
             return;
         }
-        $mode = $this->mode();
         self::$running = true;
         try {
             /** @var BasketItemRepositoryContract $itemRepo */
@@ -138,34 +104,26 @@ class StaffelService
             $items = $itemRepo->all();
             $plan = $this->plan($items);
 
-            $this->log('run', [
-                'trigger' => $trigger,
-                'mode' => $mode,
-                'items' => count($items),
-                'plan' => $plan['log'],
-            ]);
-
-            if ($mode === 0) {
-                return;
-            }
+            $this->log('run', ['items' => count($items), 'plan' => $plan['log']]);
 
             foreach ($plan['set'] as $row) {
-                if ($mode === 3) {
-                    $this->applyViaEvent($itemRepo, $row);
-                } else {
-                    $this->applyToRepository($itemRepo, $row, $mode);
+                try {
+                    // Update mit Events: BeforeBasketItemUpdate -> applyToModel setzt den Preis
+                    $itemRepo->updateBasketItem($row['id'], [
+                        'id' => $row['id'],
+                        'variationId' => $row['variationId'],
+                        'quantity' => $row['quantity'],
+                    ], true);
+                    $after = $itemRepo->findOneById($row['id']);
+                    $this->log('set', [
+                        'id' => $row['id'],
+                        'before' => $row['current'],
+                        'target' => $row['price'],
+                        'after' => $after ? $after->price : null,
+                    ]);
+                } catch (\Throwable $e) {
+                    $this->logError('update ' . $row['id'], $e);
                 }
-            }
-
-            // Kontrolle: Preise nach dem Setzen erneut lesen
-            if ($this->verbose()) {
-                $check = [];
-                foreach ($itemRepo->all() as $bi) {
-                    $check[] = $bi->id . ':' . $bi->variationId . ' x' . $bi->quantity
-                        . ' price=' . $bi->price . ' given=' . $bi->givenPrice
-                        . ' use=' . ($bi->useGivenPrice ? '1' : '0');
-                }
-                $this->log('set', ['after' => $check]);
             }
         } catch (\Throwable $e) {
             $this->logError('recalculate', $e);
@@ -175,21 +133,16 @@ class StaffelService
     }
 
     /**
-     * Ermittelt fuer jede Warenkorb-Position den Preis, der bei der
-     * Gesamtmenge der Gruppe (Artikel bzw. Artikel+Farbe) gilt.
+     * Ermittelt, welche Positionen angepasst werden muessen.
      */
     private function plan($items): array
     {
         $groups = [];
         foreach ($items as $bi) {
-            if (!($bi instanceof BasketItem)) {
+            if (!($bi instanceof BasketItem) || $this->skip($bi)) {
                 continue;
             }
-            if ((int)$bi->itemType === (int)BasketItem::BASKET_ITEM_TYPE_ITEM_SET) {
-                // Sets, Bundles usw. nicht anfassen
-                continue;
-            }
-            $key = $this->groupKey($bi);
+            $key = (int)$bi->itemId;
             $groups[$key]['qty'] = ($groups[$key]['qty'] ?? 0) + (float)$bi->quantity;
             $groups[$key]['items'][] = $bi;
         }
@@ -201,117 +154,51 @@ class StaffelService
             foreach ($g['items'] as $bi) {
                 $target = $this->priceForQuantity($bi, $qty);
                 $own = $this->priceForQuantity($bi, (float)$bi->quantity);
-                $wantGiven = $target !== null && $own !== null && (float)$target['price'] < (float)$own['price'] - 0.005;
+                $wantGiven = $target !== null && $own !== null && $target < $own - 0.005;
                 $isGiven = (bool)$bi->useGivenPrice;
                 $needs = $wantGiven
-                    ? (!$isGiven || abs((float)$bi->price - (float)$target['price']) > 0.005)
+                    ? (!$isGiven || abs((float)$bi->price - $target) > 0.005)
                     : $isGiven;
-                $log[] = $key . ' | ' . $bi->id . ':' . $bi->variationId . ' x' . $bi->quantity
-                    . ' => Gruppe ' . $qty . ' St. | aktuell ' . $bi->price . ($isGiven ? ' (fix)' : '')
-                    . ' | eigen ' . ($own === null ? 'n/a' : $own['price'])
-                    . ' | Ziel ' . ($target === null ? 'n/a' : $target['price'] . ' (PreisId ' . $target['priceId'] . ')')
+                $log[] = 'Artikel ' . $key . ' | ' . $bi->id . ':' . $bi->variationId . ' x' . $bi->quantity
+                    . ' | Gruppe ' . $qty . ' | aktuell ' . $bi->price . ($isGiven ? ' (fix)' : '')
+                    . ' | eigen ' . ($own === null ? 'n/a' : $own) . ' | Ziel ' . ($target === null ? 'n/a' : $target)
                     . ' | ' . ($needs ? 'anpassen' : 'ok');
-                if ($target === null || !$needs) {
-                    continue;
+                if ($needs) {
+                    $set[] = [
+                        'id' => $bi->id,
+                        'variationId' => $bi->variationId,
+                        'quantity' => (float)$bi->quantity,
+                        'current' => (float)$bi->price,
+                        'price' => $target === null ? (float)$bi->price : $target,
+                    ];
                 }
-                $set[] = [
-                    'id' => $bi->id,
-                    'variationId' => $bi->variationId,
-                    'quantity' => (float)$bi->quantity,
-                    'current' => (float)$bi->price,
-                    'price' => (float)$target['price'],
-                    'priceNet' => (float)$target['priceNet'],
-                    'priceId' => (int)$target['priceId'],
-                ];
             }
         }
         return ['set' => $set, 'log' => $log];
     }
 
-    private function applyToRepository(BasketItemRepositoryContract $itemRepo, array $row, int $mode)
-    {
-        $tries = [];
-        $base = ['id' => $row['id'], 'variationId' => $row['variationId'], 'quantity' => $row['quantity']];
-        if ($mode === 1 || $mode === 4) {
-            $tries[] = $base + ['givenPrice' => $row['price'], 'useGivenPrice' => true];
-        }
-        if ($mode === 2 || $mode === 4) {
-            $tries[] = $base + ['price' => $row['price']];
-        }
-        if ($mode === 4) {
-            $tries[] = $base + ['price' => $row['price'], 'priceId' => $row['priceId']];
-            $tries[] = $base + ['givenPrice' => $row['price'], 'useGivenPrice' => true, 'price' => $row['price'], 'priceId' => $row['priceId']];
-            $tries[] = $base + ['givenPrice' => $row['price'], 'useGivenPrice' => 1, 'price' => $row['price'], 'priceId' => $row['priceId'], 'rebate' => 0];
-        }
-        foreach ($tries as $data) {
-            try {
-                $res = $itemRepo->updateBasketItem($row['id'], $data, false);
-                $after = $itemRepo->findOneById($row['id']);
-                $this->log('set', [
-                    'id' => $row['id'],
-                    'data' => $data,
-                    'before' => $row['current'],
-                    'afterPrice' => $after ? $after->price : null,
-                    'afterGiven' => $after ? $after->givenPrice : null,
-                    'afterUse' => $after ? $after->useGivenPrice : null,
-                    'result' => is_object($res) ? 'object' : (is_array($res) ? 'array' : 'other'),
-                ]);
-            } catch (\Throwable $e) {
-                $this->logError('update ' . json_encode($data), $e);
-            }
-        }
-    }
-
-    /**
-     * Modus 3: Position per updateBasketItem mit Events speichern. Dabei feuert
-     * BeforeBasketItemUpdate, und der Listener setzt den Preis am Modell.
-     */
-    private function applyViaEvent(BasketItemRepositoryContract $itemRepo, array $row)
-    {
-        try {
-            $itemRepo->updateBasketItem($row['id'], [
-                'id' => $row['id'],
-                'variationId' => $row['variationId'],
-                'quantity' => $row['quantity'],
-            ], true);
-            $after = $itemRepo->findOneById($row['id']);
-            $this->log('set', [
-                'id' => $row['id'],
-                'via' => 'event',
-                'before' => $row['current'],
-                'target' => $row['price'],
-                'afterPrice' => $after ? $after->price : null,
-                'afterGiven' => $after ? $after->givenPrice : null,
-                'afterUse' => $after ? $after->useGivenPrice : null,
-            ]);
-        } catch (\Throwable $e) {
-            $this->logError('update-event ' . $row['id'], $e);
-        }
-    }
-
-    /* ---------------- Before-Events (Modus 3/4) ---------------- */
+    /* ---------------- Before-Events: Preis am Modell setzen ---------------- */
 
     public function applyToModel($basketItem)
     {
-        if (!($basketItem instanceof BasketItem)) {
+        if (!($basketItem instanceof BasketItem) || $this->skip($basketItem)) {
             return;
         }
         /** @var BasketItemRepositoryContract $itemRepo */
         $itemRepo = pluginApp(BasketItemRepositoryContract::class);
         $qty = (float)$basketItem->quantity;
-        $key = $this->groupKey($basketItem);
+        $itemId = (int)$basketItem->itemId;
         foreach ($itemRepo->all() as $other) {
-            if (!($other instanceof BasketItem) || $other->id == $basketItem->id) {
+            if (!($other instanceof BasketItem) || $other->id == $basketItem->id || $this->skip($other)) {
                 continue;
             }
-            if ($this->groupKey($other) === $key) {
+            if ((int)$other->itemId === $itemId) {
                 $qty += (float)$other->quantity;
             }
         }
         $target = $this->priceForQuantity($basketItem, $qty);
         $own = $this->priceForQuantity($basketItem, (float)$basketItem->quantity);
-        $this->log('run', [
-            'trigger' => 'before',
+        $this->log('before', [
             'variationId' => $basketItem->variationId,
             'quantity' => (float)$basketItem->quantity,
             'groupQty' => $qty,
@@ -321,33 +208,28 @@ class StaffelService
         if ($target === null || $own === null) {
             return;
         }
-        if ((float)$target['price'] >= (float)$own['price'] - 0.005) {
-            // Keine Verbesserung durch die Gruppenmenge: Plenty rechnet normal
+        if ($target >= $own - 0.005) {
+            // Keine Verbesserung durch die Gesamtmenge: Plenty rechnet normal
             $basketItem->useGivenPrice = false;
             $basketItem->givenPrice = 0;
             return;
         }
-        $basketItem->givenPrice = (float)$target['price'];
+        $basketItem->givenPrice = $target;
         $basketItem->useGivenPrice = true;
-        $basketItem->price = (float)$target['price'];
+        $basketItem->price = $target;
     }
 
     /* ---------------- Helfer ---------------- */
 
-    private function groupKey(BasketItem $bi): string
+    /** Sets, Bundles usw. nicht anfassen */
+    private function skip(BasketItem $bi): bool
     {
-        $vid = (int)$bi->variationId;
-        if (isset(self::$groupCache[$vid])) {
-            return self::$groupCache[$vid];
-        }
-        $key = 'item' . (int)$bi->itemId;
-        // Gruppierung je Artikel (Option 'color' folgt spaeter)
-        self::$groupCache[$vid] = $key;
-        return $key;
+        return (int)$bi->itemType === (int)BasketItem::BASKET_ITEM_TYPE_ITEM_SET;
     }
 
     /**
-     * Preis der Variante bei der angegebenen (Gruppen-)Menge laut Verkaufspreisen.
+     * Bruttopreis der Variante bei der angegebenen Menge laut Verkaufspreisen
+     * (beruecksichtigt Kundenklasse, Land, Waehrung, Referrer).
      */
     private function priceForQuantity(BasketItem $bi, float $quantity)
     {
@@ -390,11 +272,7 @@ class StaffelService
             if (!$res || !isset($res->price) || (float)$res->price <= 0) {
                 return null;
             }
-            return [
-                'price' => (float)$res->price,
-                'priceNet' => isset($res->priceNet) ? (float)$res->priceNet : 0.0,
-                'priceId' => isset($res->salesPriceId) ? (int)$res->salesPriceId : 0,
-            ];
+            return (float)$res->price;
         } catch (\Throwable $e) {
             $this->logError('priceForQuantity', $e);
             return null;
