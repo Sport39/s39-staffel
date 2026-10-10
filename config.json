@@ -1,0 +1,50 @@
+{
+  "formatVersion": 1,
+  "menu": {
+    "settings": {
+      "label": "S39 Staffelpreise",
+      "formFields": {
+        "mode": {
+          "type": "selectBox",
+          "required": false,
+          "label": "Modus",
+          "options": {
+            "tooltip": "Testmodi: welcher Weg zum Setzen des Preises verwendet wird",
+            "defaultValue": "0",
+            "selectBoxValues": [
+              { "value": "0", "caption": "0 - Aus (nur Protokoll)" },
+              { "value": "1", "caption": "1 - givenPrice + useGivenPrice per updateBasketItem" },
+              { "value": "2", "caption": "2 - price per updateBasketItem" },
+              { "value": "3", "caption": "3 - Modell im Before-Event aendern" },
+              { "value": "4", "caption": "4 - alle Wege nacheinander" }
+            ]
+          }
+        },
+        "groupBy": {
+          "type": "selectBox",
+          "required": false,
+          "label": "Staffel zusammenzaehlen je",
+          "options": {
+            "defaultValue": "item",
+            "selectBoxValues": [
+              { "value": "item", "caption": "Artikel (alle Farben und Groessen)" },
+              { "value": "color", "caption": "Artikel + Farbe (nur gleiche Farbe)" }
+            ]
+          }
+        },
+        "log": {
+          "type": "selectBox",
+          "required": false,
+          "label": "Ausfuehrliches Protokoll (Daten > Log)",
+          "options": {
+            "defaultValue": "1",
+            "selectBoxValues": [
+              { "value": "1", "caption": "Ja" },
+              { "value": "0", "caption": "Nein" }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
