@@ -88,7 +88,16 @@ class StaffelService
 
     public function logError(string $where, \Throwable $e)
     {
-        $this->report[] = ['key' => 'error', 'where' => $where, 'message' => $e->getMessage(), 'file' => $e->getFile() . ':' . $e->getLine()];
+        $details = [];
+        try {
+            if ($e instanceof \Plenty\Exceptions\ValidationException) {
+                $bag = $e->getMessageBag();
+                $details = $bag ? $bag->toArray() : [];
+            }
+        } catch (\Throwable $x) {
+            $details = ['bag' => $x->getMessage()];
+        }
+        $this->report[] = ['key' => 'error', 'where' => $where, 'message' => $e->getMessage(), 'details' => $details, 'file' => $e->getFile() . ':' . $e->getLine()];
         try {
             $this->getLogger('S39Staffel')->error('S39Staffel::log.error', [
                 'where' => $where,
@@ -203,11 +212,15 @@ class StaffelService
     private function applyToRepository(BasketItemRepositoryContract $itemRepo, array $row, int $mode)
     {
         $tries = [];
+        $base = ['quantity' => $row['quantity']];
         if ($mode === 1 || $mode === 4) {
-            $tries[] = ['givenPrice' => $row['price'], 'useGivenPrice' => true];
+            $tries[] = $base + ['givenPrice' => $row['price'], 'useGivenPrice' => true];
         }
         if ($mode === 2 || $mode === 4) {
-            $tries[] = ['price' => $row['price']];
+            $tries[] = $base + ['price' => $row['price']];
+        }
+        if ($mode === 4) {
+            $tries[] = $base + ['variationId' => $row['variationId'], 'givenPrice' => $row['price'], 'useGivenPrice' => true, 'price' => $row['price']];
         }
         foreach ($tries as $data) {
             try {
