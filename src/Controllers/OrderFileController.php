@@ -51,7 +51,7 @@ class OrderFileController extends Controller
                     $debug[] = ['typeId' => $it->typeId, 'name' => $it->orderItemName, 'props' => $props];
                 }
             }
-            return $response->json(['orderId' => $orderId, 'files' => $files, 'items' => $debug]);
+            return $response->json(['orderId' => $orderId, 'files' => $files, 'diag' => $service->diag, 'items' => $debug]);
         } catch (\Throwable $e) {
             $service->logError('attach ' . $orderId, $e);
             return $response->json(['error' => $e->getMessage()], 500);
