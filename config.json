@@ -4,31 +4,27 @@
     "settings": {
       "label": "S39 Staffelpreise",
       "formFields": {
-        "mode": {
+        "active": {
           "type": "selectBox",
           "required": false,
-          "label": "Modus",
+          "label": "Staffelpreise ueber alle Groessen eines Artikels zusammenrechnen",
           "options": {
-            "tooltip": "Testmodi: welcher Weg zum Setzen des Preises verwendet wird",
-            "defaultValue": "0",
+            "defaultValue": "1",
             "selectBoxValues": [
-              { "value": "0", "caption": "0 - Aus (nur Protokoll)" },
-              { "value": "1", "caption": "1 - givenPrice + useGivenPrice per updateBasketItem" },
-              { "value": "2", "caption": "2 - price per updateBasketItem" },
-              { "value": "3", "caption": "3 - Modell im Before-Event aendern" },
-              { "value": "4", "caption": "4 - alle Wege nacheinander" }
+              { "value": "1", "caption": "Ja" },
+              { "value": "0", "caption": "Nein (Plenty-Standard: je Groesse)" }
             ]
           }
         },
-        "groupBy": {
+        "attachFiles": {
           "type": "selectBox",
           "required": false,
-          "label": "Staffel zusammenzaehlen je",
+          "label": "Hochgeladene Dateien (z.B. Logos) in die Auftragsdokumente kopieren (fuer E-Mail-Anhang 'Externe Dokumente')",
           "options": {
-            "defaultValue": "item",
+            "defaultValue": "1",
             "selectBoxValues": [
-              { "value": "item", "caption": "Artikel (alle Farben und Groessen)" },
-              { "value": "color", "caption": "Artikel + Farbe (nur gleiche Farbe)" }
+              { "value": "1", "caption": "Ja" },
+              { "value": "0", "caption": "Nein" }
             ]
           }
         },
@@ -37,7 +33,7 @@
           "required": false,
           "label": "Ausfuehrliches Protokoll (Daten > Log)",
           "options": {
-            "defaultValue": "1",
+            "defaultValue": "0",
             "selectBoxValues": [
               { "value": "1", "caption": "Ja" },
               { "value": "0", "caption": "Nein" }
