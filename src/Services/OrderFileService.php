@@ -7,7 +7,7 @@ use Plenty\Plugin\Log\Loggable;
 use Plenty\Modules\Order\Models\Order;
 use Plenty\Modules\Document\Contracts\DocumentRepositoryContract;
 use Plenty\Modules\Frontend\Services\OrderPropertyFileService;
-use Plenty\Modules\Cloud\Storage\Contracts\StorageRepositoryContract;
+use Plenty\Modules\Plugin\Libs\Contracts\LibraryCallContract;
 
 /**
  * Kopiert Dateien aus Auftragsmerkmalen (Typ "Datei", z. B. hochgeladene
@@ -151,29 +151,39 @@ class OrderFileService
     private function fetch(OrderPropertyFileService $fileService, string $key)
     {
         $short = strpos($key, 'orderPropertyFiles/') === 0 ? substr($key, 19) : $key;
-        $tries = [
-            ['service', $key],
-            ['service', $short],
-            ['storage:orderPropertyFiles', $short],
-            ['storage:orderPropertyFiles', $key],
-        ];
-        foreach ($tries as $t) {
+        foreach ([$key, $short] as $k) {
             try {
-                if ($t[0] === 'service') {
-                    $obj = $fileService->getFile($t[1]);
-                } else {
-                    /** @var StorageRepositoryContract $storage */
-                    $storage = pluginApp(StorageRepositoryContract::class);
-                    $obj = $storage->getObject('orderPropertyFiles', $t[1]);
-                }
+                $obj = $fileService->getFile($k);
                 $len = ($obj && isset($obj->body)) ? strlen((string)$obj->body) : -1;
-                $this->diag[] = $t[0] . ' ' . $t[1] . ' => ' . ($obj ? get_class($obj) : 'null') . ' body ' . $len;
+                $this->diag[] = 'getFile ' . $k . ' => ' . ($obj ? get_class($obj) : 'null') . ' body ' . $len;
                 if ($obj && isset($obj->body) && $obj->body !== '') {
                     return $obj;
                 }
             } catch (\Throwable $e) {
-                $this->diag[] = $t[0] . ' ' . $t[1] . ' => EXC ' . $e->getMessage();
-                $this->logError('fetch ' . $t[1], $e);
+                $this->diag[] = 'getFile ' . $k . ' => EXC ' . $e->getMessage();
+            }
+        }
+        // Fallback: Download-URL ermitteln und serverseitig (lib) laden
+        foreach ([$key, $short] as $k) {
+            try {
+                $url = (string)$fileService->getFileURL($k);
+                $this->diag[] = 'getFileURL ' . $k . ' => ' . substr($url, 0, 120);
+                if (strpos($url, 'http') !== 0) {
+                    continue;
+                }
+                /** @var LibraryCallContract $lib */
+                $lib = pluginApp(LibraryCallContract::class);
+                $r = $lib->call('S39Staffel::fetch_image', ['url' => $url]);
+                $status = is_array($r) ? (int)($r['status'] ?? 0) : 0;
+                $this->diag[] = 'lib ' . $k . ' => status ' . $status . ' type ' . (is_array($r) ? ($r['type'] ?? '') : '') . ' ' . (is_array($r) && !empty($r['error_msg']) ? substr($r['error_msg'], 0, 100) : '');
+                if ($status === 200 && !empty($r['body'])) {
+                    $obj = new \stdClass();
+                    $obj->body = base64_decode($r['body']);
+                    $obj->metaData = ['headers' => ['content-type' => (string)($r['type'] ?? '')]];
+                    return $obj;
+                }
+            } catch (\Throwable $e) {
+                $this->diag[] = 'getFileURL ' . $k . ' => EXC ' . $e->getMessage();
             }
         }
         return null;
