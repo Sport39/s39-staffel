@@ -20,6 +20,7 @@ class S39StaffelServiceProvider extends ServiceProvider
 {
     public function register()
     {
+        $this->getApplication()->register(S39StaffelRouteServiceProvider::class);
     }
 
     public function boot(Dispatcher $dispatcher)
