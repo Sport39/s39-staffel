@@ -150,7 +150,11 @@ class StaffelService
             }
 
             foreach ($plan['set'] as $row) {
-                $this->applyToRepository($itemRepo, $row, $mode);
+                if ($mode === 3) {
+                    $this->applyViaEvent($itemRepo, $row);
+                } else {
+                    $this->applyToRepository($itemRepo, $row, $mode);
+                }
             }
 
             // Kontrolle: Preise nach dem Setzen erneut lesen
@@ -196,10 +200,18 @@ class StaffelService
             $qty = $g['qty'];
             foreach ($g['items'] as $bi) {
                 $target = $this->priceForQuantity($bi, $qty);
+                $own = $this->priceForQuantity($bi, (float)$bi->quantity);
+                $wantGiven = $target !== null && $own !== null && (float)$target['price'] < (float)$own['price'] - 0.005;
+                $isGiven = (bool)$bi->useGivenPrice;
+                $needs = $wantGiven
+                    ? (!$isGiven || abs((float)$bi->price - (float)$target['price']) > 0.005)
+                    : $isGiven;
                 $log[] = $key . ' | ' . $bi->id . ':' . $bi->variationId . ' x' . $bi->quantity
-                    . ' => Gruppe ' . $qty . ' St. | aktuell ' . $bi->price
-                    . ' | Ziel ' . ($target === null ? 'n/a' : $target['price'] . ' (PreisId ' . $target['priceId'] . ')');
-                if ($target === null) {
+                    . ' => Gruppe ' . $qty . ' St. | aktuell ' . $bi->price . ($isGiven ? ' (fix)' : '')
+                    . ' | eigen ' . ($own === null ? 'n/a' : $own['price'])
+                    . ' | Ziel ' . ($target === null ? 'n/a' : $target['price'] . ' (PreisId ' . $target['priceId'] . ')')
+                    . ' | ' . ($needs ? 'anpassen' : 'ok');
+                if ($target === null || !$needs) {
                     continue;
                 }
                 $set[] = [
@@ -250,6 +262,33 @@ class StaffelService
         }
     }
 
+    /**
+     * Modus 3: Position per updateBasketItem mit Events speichern. Dabei feuert
+     * BeforeBasketItemUpdate, und der Listener setzt den Preis am Modell.
+     */
+    private function applyViaEvent(BasketItemRepositoryContract $itemRepo, array $row)
+    {
+        try {
+            $itemRepo->updateBasketItem($row['id'], [
+                'id' => $row['id'],
+                'variationId' => $row['variationId'],
+                'quantity' => $row['quantity'],
+            ], true);
+            $after = $itemRepo->findOneById($row['id']);
+            $this->log('set', [
+                'id' => $row['id'],
+                'via' => 'event',
+                'before' => $row['current'],
+                'target' => $row['price'],
+                'afterPrice' => $after ? $after->price : null,
+                'afterGiven' => $after ? $after->givenPrice : null,
+                'afterUse' => $after ? $after->useGivenPrice : null,
+            ]);
+        } catch (\Throwable $e) {
+            $this->logError('update-event ' . $row['id'], $e);
+        }
+    }
+
     /* ---------------- Before-Events (Modus 3/4) ---------------- */
 
     public function applyToModel($basketItem)
@@ -270,13 +309,22 @@ class StaffelService
             }
         }
         $target = $this->priceForQuantity($basketItem, $qty);
+        $own = $this->priceForQuantity($basketItem, (float)$basketItem->quantity);
         $this->log('run', [
             'trigger' => 'before',
             'variationId' => $basketItem->variationId,
+            'quantity' => (float)$basketItem->quantity,
             'groupQty' => $qty,
+            'own' => $own,
             'target' => $target,
         ]);
-        if ($target === null) {
+        if ($target === null || $own === null) {
+            return;
+        }
+        if ((float)$target['price'] >= (float)$own['price'] - 0.005) {
+            // Keine Verbesserung durch die Gruppenmenge: Plenty rechnet normal
+            $basketItem->useGivenPrice = false;
+            $basketItem->givenPrice = 0;
             return;
         }
         $basketItem->givenPrice = (float)$target['price'];
