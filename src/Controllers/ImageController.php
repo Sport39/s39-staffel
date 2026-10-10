@@ -6,16 +6,19 @@ use Plenty\Plugin\Controller;
 use Plenty\Plugin\Http\Request;
 use Plenty\Plugin\Http\Response;
 use Plenty\Modules\Plugin\Libs\Contracts\LibraryCallContract;
+use Plenty\Plugin\Log\Loggable;
 
 /**
  * Liefert ein Artikelbild vom Plenty-CDN unter der Shop-Domain aus.
  * Der Teambestell-Konfigurator zeichnet damit die Druckvorschau (PNG),
  * was direkt vom CDN wegen fehlender CORS-Freigabe nicht moeglich ist.
  *
- * Aufruf: /s39staffel/img?src=https://cdn02.plentyone.com/<bucket>/item/images/...
+ * Aufruf: /rest/s39staffel/img?src=https://cdn02.plentyone.com/<bucket>/item/images/...
  */
 class ImageController extends Controller
 {
+    use Loggable;
+
     public function show(Request $request, Response $response, LibraryCallContract $lib)
     {
         $src = (string)$request->get('src', '');
@@ -25,12 +28,25 @@ class ImageController extends Controller
             return $response->make('forbidden', 403);
         }
 
+        $err = '';
         try {
             $r = $lib->call('S39Staffel::fetch_image', ['url' => $src]);
         } catch (\Throwable $e) {
             $r = null;
+            $err = $e->getMessage();
         }
         if (!is_array($r) || (int)($r['status'] ?? 0) !== 200 || empty($r['body'])) {
+            try {
+                $this->getLogger('S39Staffel')->error('S39Staffel::log.error', [
+                    'where' => 'image proxy',
+                    'message' => $err ?: 'lib result: ' . json_encode(is_array($r) ? array_diff_key($r, ['body' => 1]) : $r),
+                    'file' => $src,
+                ]);
+            } catch (\Throwable $x) {
+            }
+            if ((string)$request->get('debug', '') === '1') {
+                return $response->json(['error' => $err, 'result' => is_array($r) ? array_diff_key($r, ['body' => 1]) : $r], 404);
+            }
             return $response->make('not found', 404);
         }
 
