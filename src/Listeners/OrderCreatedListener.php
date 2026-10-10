@@ -31,7 +31,7 @@ class OrderCreatedListener
             $full = $auth->processUnguarded(function () use ($orderId) {
                 /** @var OrderRepositoryContract $repo */
                 $repo = pluginApp(OrderRepositoryContract::class);
-                return $repo->findOrderById($orderId);
+                return $repo->findOrderById($orderId, ['orderItems', 'orderItems.properties']);
             });
             $auth->processUnguarded(function () use ($service, $full, $order) {
                 $service->copyPropertyFiles($full ?: $order);
