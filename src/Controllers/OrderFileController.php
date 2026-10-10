@@ -29,7 +29,7 @@ class OrderFileController extends Controller
             $order = $auth->processUnguarded(function () use ($orderId) {
                 /** @var OrderRepositoryContract $repo */
                 $repo = pluginApp(OrderRepositoryContract::class);
-                return $repo->findOrderById($orderId);
+                return $repo->findOrderById($orderId, ['orderItems', 'orderItems.properties']);
             });
             if (!$order) {
                 return $response->json(['error' => 'Auftrag nicht gefunden'], 404);
@@ -41,7 +41,17 @@ class OrderFileController extends Controller
             $files = $auth->processUnguarded(function () use ($service, $order) {
                 return $service->copyPropertyFiles($order);
             });
-            return $response->json(['orderId' => $orderId, 'files' => $files]);
+            $debug = [];
+            if ((string)$request->get('debug', '') === '1') {
+                foreach ($order->orderItems as $it) {
+                    $props = [];
+                    foreach ($it->properties as $p) {
+                        $props[] = $p->typeId . '=' . substr((string)$p->value, 0, 60);
+                    }
+                    $debug[] = ['typeId' => $it->typeId, 'name' => $it->orderItemName, 'props' => $props];
+                }
+            }
+            return $response->json(['orderId' => $orderId, 'files' => $files, 'items' => $debug]);
         } catch (\Throwable $e) {
             $service->logError('attach ' . $orderId, $e);
             return $response->json(['error' => $e->getMessage()], 500);
