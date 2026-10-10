@@ -23,9 +23,9 @@ class PingController extends Controller
         ]);
     }
 
-    public function run(Response $response, StaffelService $service, BasketItemRepositoryContract $itemRepo)
+    public function run(Response $response, StaffelService $service, BasketItemRepositoryContract $itemRepo, $mode = null)
     {
-        $result = $service->recalculateWithReport('manual');
+        $result = $service->recalculateWithReport('manual', $mode);
         return $response->json([
             'plugin' => 'S39Staffel',
             'mode' => $service->mode(),
