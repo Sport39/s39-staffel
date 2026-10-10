@@ -212,7 +212,7 @@ class StaffelService
     private function applyToRepository(BasketItemRepositoryContract $itemRepo, array $row, int $mode)
     {
         $tries = [];
-        $base = ['quantity' => $row['quantity']];
+        $base = ['id' => $row['id'], 'variationId' => $row['variationId'], 'quantity' => $row['quantity']];
         if ($mode === 1 || $mode === 4) {
             $tries[] = $base + ['givenPrice' => $row['price'], 'useGivenPrice' => true];
         }
@@ -220,7 +220,7 @@ class StaffelService
             $tries[] = $base + ['price' => $row['price']];
         }
         if ($mode === 4) {
-            $tries[] = $base + ['variationId' => $row['variationId'], 'givenPrice' => $row['price'], 'useGivenPrice' => true, 'price' => $row['price']];
+            $tries[] = $base + ['givenPrice' => $row['price'], 'useGivenPrice' => true, 'price' => $row['price'], 'priceId' => $row['priceId']];
         }
         foreach ($tries as $data) {
             try {
