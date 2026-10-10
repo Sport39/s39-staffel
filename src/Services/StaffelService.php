@@ -38,6 +38,9 @@ class StaffelService
     /** @var ConfigRepository */
     private $config;
 
+    /** @var array Bericht des letzten Laufs (fuer Debug-Endpunkt) */
+    private $report = [];
+
     public function __construct(ConfigRepository $config)
     {
         $this->config = $config;
@@ -73,6 +76,7 @@ class StaffelService
 
     private function log(string $key, array $data = [])
     {
+        $this->report[] = ['key' => $key, 'data' => $data];
         if (!$this->verbose() && $key !== 'error') {
             return;
         }
@@ -84,6 +88,7 @@ class StaffelService
 
     public function logError(string $where, \Throwable $e)
     {
+        $this->report[] = ['key' => 'error', 'where' => $where, 'message' => $e->getMessage(), 'file' => $e->getFile() . ':' . $e->getLine()];
         try {
             $this->getLogger('S39Staffel')->error('S39Staffel::log.error', [
                 'where' => $where,
@@ -95,6 +100,14 @@ class StaffelService
     }
 
     /* ---------------- Hauptlauf (After-Events) ---------------- */
+
+    public function recalculateWithReport(string $trigger): array
+    {
+        $this->report = [];
+        self::$running = false;
+        $this->recalculate($trigger);
+        return $this->report;
+    }
 
     public function recalculate(string $trigger)
     {
