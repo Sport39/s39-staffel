@@ -1,7 +1,8 @@
-# S39 Staffelpreise
+# S39 Graduated prices
 
-Rechnet Staffelpreise (Verkaufspreise mit Mindestmenge) im Warenkorb ueber alle Varianten eines Artikels zusammen, nicht nur je Variante.
+Applies graduated prices in the basket across all sizes (variations) of an item. Additionally copies customer-uploaded files (order properties of type file) into the order documents ("uploaded"), so they can be attached to e-mails via "dynamic attachments".
 
-Beispiel: 4 x Gr. S + 8 x Gr. M + 10 x Gr. L = 22 Stueck -> alle 22 bekommen den Staffelpreis "ab 20".
-
-Einstellungen im Plugin-Set: Modus (Testmodi), Zusammenzaehlen je Artikel oder je Artikel+Farbe, Protokoll.
+## Settings
+- **Combine graduated prices across all sizes**: yes/no
+- **Copy uploaded files to order documents**: yes/no
+- **Verbose log**: writes every run to Data » Log (plugin S39Staffel). Enable only for troubleshooting.
