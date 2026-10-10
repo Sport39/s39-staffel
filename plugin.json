@@ -1,0 +1,15 @@
+{
+  "name": "S39Staffel",
+  "description": "Staffelpreise ueber alle Varianten (Groessen) eines Artikels im Warenkorb (Sport39 / Work39)",
+  "namespace": "S39Staffel",
+  "author": "Sport39",
+  "type": "general",
+  "version": "0.1.0",
+  "license": "proprietary",
+  "isClosedSource": false,
+  "serviceProvider": "S39Staffel\\Providers\\S39StaffelServiceProvider",
+  "require": [],
+  "runOnBuild": [],
+  "dataProviders": [],
+  "containers": []
+}
