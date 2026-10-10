@@ -1,0 +1,7 @@
+{
+  "name": "sport39/s39staffel",
+  "description": "Externe Bibliotheken fuer die lib-Skripte (Bild-Proxy)",
+  "require": {
+    "guzzlehttp/guzzle": "^7.0"
+  }
+}
