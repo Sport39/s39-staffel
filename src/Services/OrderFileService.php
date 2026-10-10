@@ -44,6 +44,15 @@ class OrderFileService
         return $v === true || $v === 'true' || $v === 1 || $v === '1';
     }
 
+    /** Hinweis ins Log schreiben (unabhaengig vom Ausfuehrlich-Schalter) */
+    public function note(string $key, array $data)
+    {
+        try {
+            $this->getLogger('S39Staffel')->info('S39Staffel::log.' . $key, $data);
+        } catch (\Throwable $x) {
+        }
+    }
+
     public function logError(string $where, \Throwable $e)
     {
         try {
@@ -63,10 +72,10 @@ class OrderFileService
      * steht in den Positionseigenschaften (typeId 82); bei Datei-Merkmalen ist
      * das der Speicherpfad "orderPropertyFiles/<auftrag>/<position>/propFile...".
      */
-    public function copyPropertyFiles($order)
+    public function copyPropertyFiles($order): array
     {
         if (!($order instanceof Order) || (int)$order->id <= 0) {
-            return;
+            return [];
         }
         $files = [];
         $names = [];
@@ -86,8 +95,9 @@ class OrderFileService
                 $names[] = trim(substr($value, 13));
             }
         }
+        $this->note('files', ['orderId' => $order->id, 'items' => count($order->orderItems), 'found' => array_keys($files)]);
         if (!count($files)) {
-            return;
+            return [];
         }
 
         /** @var OrderPropertyFileService $fileService */
@@ -123,14 +133,15 @@ class OrderFileService
             }
         }
         if (!count($docs)) {
-            return;
+            return [];
         }
         $result = $docRepo->uploadOrderDocuments((int)$order->id, 'uploaded', ['documents' => $docs]);
-        $this->log('files', [
+        $this->note('files', [
             'orderId' => $order->id,
             'files' => $done,
             'result' => is_array($result) ? count($result) : 'n/a',
         ]);
+        return $done;
     }
 
     private function fetch(OrderPropertyFileService $fileService, string $key)
