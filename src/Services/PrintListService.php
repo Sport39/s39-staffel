@@ -4,6 +4,7 @@ namespace S39Staffel\Services;
 
 use Plenty\Modules\Order\Models\Order;
 use Plenty\Modules\Document\Contracts\DocumentRepositoryContract;
+use Plenty\Modules\Webshop\Contracts\WebstoreConfigurationRepositoryContract;
 
 /**
  * Druckliste: fasst die Personalisierung eines Auftrags (Druckelemente,
@@ -137,7 +138,7 @@ class PrintListService
     }
 
     /** PDF-Inhalt oder '' wenn der Auftrag keine Druckdaten hat */
-    public function build($order, array $images = []): string
+    public function build($order, array $images = [], array $links = []): string
     {
         $data = $this->parse($order);
         if (!count($data['groups'])) {
@@ -218,6 +219,19 @@ class PrintListService
             }
             $this->y += 8;
         }
+        // Links zu den Originaldateien (liegen im Plugin-Speicher, nicht am Warenkorb)
+        if (count($links)) {
+            $this->need(30 + 13 * count($links));
+            $pdf->text($L, $this->y, 'Hochgeladene Originaldateien', 10, true);
+            $this->y += 14;
+            foreach ($links as $name => $url) {
+                $pdf->text($L, $this->y, (string)$name, 9);
+                $this->y += 11;
+                $pdf->text($L + 12, $this->y, (string)$url, 7.5, false, .35);
+                $this->y += 13;
+            }
+            $this->y += 6;
+        }
         $this->need(30);
         $pdf->text($L, $this->y + 6, 'Automatisch erstellt aus den Bestelldaten. Platzierung und Größen werden vor dem Druck abgestimmt.', 8, false, .45);
         // Bildseiten: Druckvorschauen und Logo
@@ -258,6 +272,7 @@ class PrintListService
         $images = [];
         $pdfs = [];
         $skipped = [];
+        $links = [];
         foreach ($files->refFiles($order) as $key => $name) {
             $r = $files->read((string)$key);
             if (!$r || $r['body'] === '') {
@@ -265,20 +280,44 @@ class PrintListService
             }
             $body = $r['body'];
             $base = preg_replace('/\.[A-Za-z0-9]+$/', '', (string)$name);
+            $url = $this->fileUrl((string)$key);
             if (preg_match('/^Druckvorschau_(Vorderseite|Rueckseite|Hose)/', (string)$name, $m)) {
                 $images[] = ['title' => 'Druckvorschau ' . str_replace('Rueckseite', 'Rückseite', $m[1]), 'sub' => 'Digitale Vorschau – unverbindlich, Platzierung wird vor dem Druck abgestimmt', 'body' => $body, 'order' => 0];
             } elseif (substr($body, 0, 4) === '%PDF') {
                 $pdfs[$base . '_' . $orderId] = $body;
+                $links[(string)$name] = $url;
             } elseif (substr($body, 0, 3) === "\xFF\xD8\xFF" || substr($body, 0, 4) === "\x89PNG") {
-                $images[] = ['title' => 'Logo-Datei: ' . $name, 'sub' => 'Originaldatei liegt als Upload am Auftrag (Merkmal „Logo-Datei“)', 'body' => $body, 'order' => 1];
+                $images[] = ['title' => 'Logo-Datei: ' . $name, 'sub' => 'Originaldatei: ' . $url, 'body' => $body, 'order' => 1];
+                $links[(string)$name] = $url;
             } else {
                 $skipped[] = (string)$name;
+                $links[(string)$name] = $url;
             }
         }
         usort($images, function ($a, $b) {
             return $a['order'] - $b['order'];
         });
-        return ['images' => $images, 'pdfs' => $pdfs, 'skipped' => $skipped];
+        return ['images' => $images, 'pdfs' => $pdfs, 'skipped' => $skipped, 'links' => $links];
+    }
+
+    /** Download-Link einer Originaldatei (Plugin-Speicher) fuer die Druckliste */
+    private function fileUrl(string $key): string
+    {
+        $slash = strpos($key, '/');
+        $ref = $slash === false ? '' : substr($key, 0, $slash);
+        $name = $slash === false ? $key : substr($key, $slash + 1);
+        $host = 'https://www.sport39.de';
+        try {
+            /** @var WebstoreConfigurationRepositoryContract $ws */
+            $ws = pluginApp(WebstoreConfigurationRepositoryContract::class);
+            $cfg = $ws->getWebstoreConfiguration();
+            $d = (string)($cfg->domainSsl ?: $cfg->domain);
+            if ($d !== '') {
+                $host = preg_match('#^https?://#', $d) ? rtrim($d, '/') : 'https://' . rtrim($d, '/');
+            }
+        } catch (\Throwable $e) {
+        }
+        return $host . '/rest/s39staffel/file?ref=' . rawurlencode($ref) . '&name=' . rawurlencode($name);
     }
 
     /** PDF als Auftragsdokument (Externes Dokument) "Druckliste_<id>.pdf" ablegen */
