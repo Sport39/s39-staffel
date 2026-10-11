@@ -204,8 +204,13 @@ class OrderFileService
             $repo = pluginApp(BasketItemRepositoryContract::class);
             $items = $repo->all();
             foreach ($items as $item) {
-                $arr = is_object($item) && method_exists($item, 'toArray') ? $item->toArray() : (array)$item;
-                $params = $arr['basketItemOrderParams'] ?? [];
+                $params = [];
+                try {
+                    $arr = $item->toArray();
+                    $params = $arr['basketItemOrderParams'] ?? [];
+                } catch (\Throwable $x) {
+                    $params = (array)($item->basketItemOrderParams ?? []);
+                }
                 foreach ($params as $prm) {
                     $prm = (array)$prm;
                     $v = (string)($prm['value'] ?? '');
