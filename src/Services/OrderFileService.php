@@ -208,8 +208,19 @@ class OrderFileService
                 try {
                     $arr = $item->toArray();
                     $params = $arr['basketItemOrderParams'] ?? [];
+                    if (count($this->diag) < 3) {
+                        $this->diag[] = 'item ' . substr(json_encode($arr), 0, 600);
+                    }
                 } catch (\Throwable $x) {
-                    $params = (array)($item->basketItemOrderParams ?? []);
+                    $this->diag[] = 'item EXC ' . $x->getMessage();
+                }
+                if (!count($params)) {
+                    try {
+                        $params = (array)($item->basketItemOrderParams ?? []);
+                        $this->diag[] = 'prop params ' . count($params) . ' ' . substr(json_encode($params), 0, 300);
+                    } catch (\Throwable $x) {
+                        $this->diag[] = 'prop EXC ' . $x->getMessage();
+                    }
                 }
                 foreach ($params as $prm) {
                     $prm = (array)$prm;
