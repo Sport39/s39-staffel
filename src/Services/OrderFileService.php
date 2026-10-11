@@ -247,6 +247,52 @@ class OrderFileService
         return $out;
     }
 
+    /**
+     * Datei-Schluessel aus den Textmerkmalen des Auftrags ableiten.
+     * Das Team-Script schreibt "hochgeladen: <Datei> (Ref <ordner>)" bzw.
+     * "weitere Dateien: a.pdf, b.png (Ref <ordner>)"; die Upload-Schluessel
+     * lauten "<ordner>/<Datei>". Druckvorschauen haben feste Namen.
+     */
+    public function refFiles($order): array
+    {
+        $out = [];
+        if (!($order instanceof Order)) {
+            return $out;
+        }
+        foreach ($order->orderItems as $item) {
+            foreach ($item->properties as $p) {
+                if ((int)$p->typeId !== 82) {
+                    continue;
+                }
+                $v = (string)$p->value;
+                if (!preg_match('/\\(Ref ([A-Za-z0-9_-]{4,40})\\)/', $v, $m)) {
+                    continue;
+                }
+                $ref = $m[1];
+                $names = [];
+                if (preg_match('/hochgeladen: ([^|(]+)/', $v, $n)) {
+                    $names[] = trim($n[1]);
+                }
+                if (preg_match('/weitere Dateien: ([^|(]+)/', $v, $n)) {
+                    foreach (explode(',', $n[1]) as $x) {
+                        $names[] = trim($x);
+                    }
+                }
+                $names[] = 'Druckvorschau_Vorderseite.png';
+                $names[] = 'Druckvorschau_Rueckseite.png';
+                $names[] = 'Druckvorschau_Hose.png';
+                foreach ($names as $name) {
+                    if ($name === '' || strpos($name, '/') !== false || strpos($name, '..') !== false) {
+                        continue;
+                    }
+                    $out[$ref . '/' . $name] = $name;
+                }
+            }
+        }
+        $this->diag[] = 'ref files ' . implode(',', array_keys($out));
+        return $out;
+    }
+
     /** Einzelnen Schluessel testen (Diagnose) */
     public function probe(string $key): array
     {
