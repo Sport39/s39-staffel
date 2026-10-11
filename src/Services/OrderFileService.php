@@ -151,6 +151,21 @@ class OrderFileService
     private function fetch(OrderPropertyFileService $fileService, string $key)
     {
         $short = strpos($key, 'orderPropertyFiles/') === 0 ? substr($key, 19) : $key;
+        // 1) Kopie im Plugin-Speicher (vom Konfigurator beim Hochladen abgelegt)
+        $slash = strpos($short, '/');
+        if ($slash !== false) {
+            try {
+                /** @var StashService $stash */
+                $stash = pluginApp(StashService::class);
+                $hit = $stash->get(substr($short, 0, $slash), substr($short, $slash + 1));
+                $this->diag[] = 'stash ' . $short . ' => ' . ($hit ? 'ok ' . strlen($hit['body']) : 'nicht vorhanden');
+                if ($hit) {
+                    return $hit;
+                }
+            } catch (\Throwable $e) {
+                $this->diag[] = 'stash ' . $short . ' => EXC ' . $e->getMessage();
+            }
+        }
         foreach ([$key, $short] as $k) {
             try {
                 $obj = $fileService->getFile($k);
