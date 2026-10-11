@@ -9,9 +9,12 @@ use Plenty\Modules\Order\Contracts\OrderRepositoryContract;
 use Plenty\Modules\Authorization\Services\AuthHelper;
 
 /**
- * Nach dem Anlegen eines Auftrags: vom Kunden hochgeladene Dateien
- * (Auftragsmerkmale vom Typ Datei, z. B. Vereinslogos) in die
- * Auftragsdokumente kopieren, damit sie als E-Mail-Anhang nutzbar sind.
+ * Nach dem Anlegen eines Auftrags:
+ *  - Druckliste (Personalisierung als Tabelle) als PDF erzeugen; Druckvorschauen und
+ *    Bild-Logos werden als Seiten in dieses PDF eingebettet
+ *  - vom Kunden hochgeladene PDF-Dateien (z. B. Vektor-Logo) zusaetzlich als eigenes Dokument anhaengen
+ * Plenty speichert externe Dokumente grundsaetzlich als PDF, deshalb werden keine
+ * Rohbilder (PNG/JPG) mehr als eigene Dokumente abgelegt.
  */
 class OrderCreatedListener
 {
@@ -26,7 +29,6 @@ class OrderCreatedListener
             $order = $event->getOrder();
             $orderId = (int)$order->id;
             $service->note('event', ['orderId' => $orderId]);
-            // Auftrag mit allen Positionen/Eigenschaften neu laden (im Event sind die Relationen nicht sicher geladen)
             /** @var AuthHelper $auth */
             $auth = pluginApp(AuthHelper::class);
             $full = $auth->processUnguarded(function () use ($orderId) {
@@ -34,43 +36,21 @@ class OrderCreatedListener
                 $repo = pluginApp(OrderRepositoryContract::class);
                 return $repo->findOrderById($orderId, ['orderItems', 'orderItems.properties']);
             });
-            // 1) Upload-Schluessel aus den Textmerkmalen (Ref) bzw. dem Warenkorb ermitteln
-            $keys = $service->refFiles($full ?: $order);
-            if (!count($keys)) {
-                $keys = $service->basketFiles();
-            }
-            $done = [];
-            if (count($keys)) {
-                $done = $auth->processUnguarded(function () use ($service, $orderId, $keys) {
-                    return $service->attachFiles($orderId, $keys);
-                });
-            }
-            // 2) Fallback: Datei-Merkmale des Auftrags selbst
-            if (!count($done)) {
-                $auth->processUnguarded(function () use ($service, $full, $order) {
-                    $service->copyPropertyFiles($full ?: $order);
-                });
-            }
-            // 3) Druckliste (Personalisierung als Tabelle) als PDF anhaengen
-            try {
-                /** @var PrintListService $printList */
-                $printList = pluginApp(PrintListService::class);
-                $pdf = $printList->build($full ?: $order);
+            /** @var PrintListService $printList */
+            $printList = pluginApp(PrintListService::class);
+            $col = $printList->collect($full ?: $order);
+            $images = $col['images'];
+            $pdfs = $col['pdfs'];
+            $pdf = $printList->build($full ?: $order, $images);
+            $auth->processUnguarded(function () use ($printList, $orderId, $pdf, $pdfs) {
                 if ($pdf !== '') {
-                    $auth->processUnguarded(function () use ($printList, $orderId, $pdf) {
-                        $printList->attach($orderId, $pdf);
-                    });
-                    $service->diag[] = 'druckliste ' . strlen($pdf) . ' bytes';
-                } else {
-                    $service->diag[] = 'druckliste: keine Druckdaten';
+                    $printList->attach($orderId, $pdf);
                 }
-            } catch (\Throwable $e) {
-                $service->diag[] = 'druckliste EXC ' . $e->getMessage() . ' @' . basename($e->getFile()) . ':' . $e->getLine();
-                $service->logError('druckliste', $e);
-            }
-            $auth->processUnguarded(function () use ($service, $orderId) {
-                $service->attachDiag($orderId, date('c') . "\n" . implode("\n", $service->diag) . "\n");
+                foreach ($pdfs as $name => $body) {
+                    $printList->attach($orderId, $body, $name);
+                }
             });
+            $service->note('files', ['orderId' => $orderId, 'druckliste' => strlen($pdf), 'images' => count($images), 'pdfs' => array_keys($pdfs), 'skipped' => $col['skipped'], 'diag' => $service->diag]);
         } catch (\Throwable $e) {
             $service->logError('orderCreated', $e);
         }
