@@ -35,6 +35,10 @@ class StaffelService
     private static $priceCache = [];
     /** @var array|null Kontext (Kundenklasse, Land, Waehrung, ...) einmal je Request */
     private static $ctx = null;
+    /** @var array|null Warenkorb-Positionen (Cache je Request fuer die Before-Events) */
+    private static $items = null;
+    /** @var string Fingerabdruck des zuletzt geprueften Warenkorbs (Plenty feuert je Aenderung viele Events) */
+    private static $checked = '';
 
     /** @var ConfigRepository */
     private $config;
@@ -105,7 +109,12 @@ class StaffelService
         try {
             /** @var BasketItemRepositoryContract $itemRepo */
             $itemRepo = pluginApp(BasketItemRepositoryContract::class);
-            $items = $itemRepo->all();
+            $items = $this->items(true);
+            $fp = $this->fingerprint($items);
+            if ($fp === self::$checked) {
+                // Warenkorb seit der letzten Pruefung unveraendert -> nichts zu tun
+                return;
+            }
             $plan = $this->plan($items);
 
             $this->log('run', ['items' => count($items), 'plan' => $plan['log']]);
@@ -129,11 +138,36 @@ class StaffelService
                     $this->logError('update ' . $row['id'], $e);
                 }
             }
+            self::$checked = $this->fingerprint(count($plan['set']) ? $this->items(true) : $items);
         } catch (\Throwable $e) {
             $this->logError('recalculate', $e);
         } finally {
             self::$running = false;
         }
+    }
+
+    /** Warenkorb-Positionen, je Request zwischengespeichert */
+    private function items(bool $fresh = false)
+    {
+        if ($fresh || self::$items === null) {
+            /** @var BasketItemRepositoryContract $itemRepo */
+            $itemRepo = pluginApp(BasketItemRepositoryContract::class);
+            self::$items = $itemRepo->all();
+        }
+        return self::$items;
+    }
+
+    private function fingerprint($items): string
+    {
+        $parts = [];
+        foreach ($items as $bi) {
+            if (!($bi instanceof BasketItem)) {
+                continue;
+            }
+            $parts[] = $bi->id . ':' . $bi->variationId . ':' . $bi->quantity . ':' . $bi->price . ':' . ((bool)$bi->useGivenPrice ? 1 : 0);
+        }
+        sort($parts);
+        return implode('|', $parts);
     }
 
     /**
@@ -212,11 +246,9 @@ class StaffelService
         if (!($basketItem instanceof BasketItem) || $this->skip($basketItem)) {
             return;
         }
-        /** @var BasketItemRepositoryContract $itemRepo */
-        $itemRepo = pluginApp(BasketItemRepositoryContract::class);
         $qty = (float)$basketItem->quantity;
         $itemId = (int)$basketItem->itemId;
-        foreach ($itemRepo->all() as $other) {
+        foreach ($this->items() as $other) {
             if (!($other instanceof BasketItem) || $other->id == $basketItem->id || $this->skip($other)) {
                 continue;
             }
