@@ -50,7 +50,7 @@ class PrintListController extends Controller
                     return $i['title'] . ' (' . strlen($i['body']) . ' B)';
                 }, $col['images']), 'pdfs' => array_keys($col['pdfs']), 'skipped' => $col['skipped']]);
             }
-            $pdf = $service->build($order, $col['images']);
+            $pdf = $service->build($order, $col['images'], $col['links'] ?? []);
             if ($pdf === '') {
                 return $response->json(['error' => 'keine Druckdaten im Auftrag'], 404);
             }
