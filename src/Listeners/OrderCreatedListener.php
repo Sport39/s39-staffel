@@ -33,12 +33,15 @@ class OrderCreatedListener
                 $repo = pluginApp(OrderRepositoryContract::class);
                 return $repo->findOrderById($orderId, ['orderItems', 'orderItems.properties']);
             });
-            // 1) Dateien aus dem (noch vorhandenen) Warenkorb der Session holen
-            $basket = $service->basketFiles();
+            // 1) Upload-Schluessel aus den Textmerkmalen (Ref) bzw. dem Warenkorb ermitteln
+            $keys = $service->refFiles($full ?: $order);
+            if (!count($keys)) {
+                $keys = $service->basketFiles();
+            }
             $done = [];
-            if (count($basket)) {
-                $done = $auth->processUnguarded(function () use ($service, $orderId, $basket) {
-                    return $service->attachFiles($orderId, $basket);
+            if (count($keys)) {
+                $done = $auth->processUnguarded(function () use ($service, $orderId, $keys) {
+                    return $service->attachFiles($orderId, $keys);
                 });
             }
             // 2) Fallback: Datei-Merkmale des Auftrags selbst
