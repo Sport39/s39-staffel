@@ -42,14 +42,26 @@ class PrintListController extends Controller
             if ((string)$request->get('json', '') === '1') {
                 return $response->json($service->parse($order));
             }
-            $pdf = $service->build($order);
+            $col = $auth->processUnguarded(function () use ($service, $order) {
+                return $service->collect($order);
+            });
+            if ((string)$request->get('files', '') === '1') {
+                return $response->json(['images' => array_map(function ($i) {
+                    return $i['title'] . ' (' . strlen($i['body']) . ' B)';
+                }, $col['images']), 'pdfs' => array_keys($col['pdfs']), 'skipped' => $col['skipped']]);
+            }
+            $pdf = $service->build($order, $col['images']);
             if ($pdf === '') {
                 return $response->json(['error' => 'keine Druckdaten im Auftrag'], 404);
             }
             $attached = false;
             if ((string)$request->get('attach', '') === '1') {
-                $attached = $auth->processUnguarded(function () use ($service, $orderId, $pdf) {
-                    return $service->attach($orderId, $pdf);
+                $attached = $auth->processUnguarded(function () use ($service, $orderId, $pdf, $col) {
+                    $ok = $service->attach($orderId, $pdf);
+                    foreach ($col['pdfs'] as $name => $body) {
+                        $service->attach($orderId, $body, $name);
+                    }
+                    return $ok;
                 });
                 return $response->json(['ok' => $attached, 'bytes' => strlen($pdf)]);
             }
