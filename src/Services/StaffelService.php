@@ -238,7 +238,10 @@ class StaffelService
     /** Sets, Bundles usw. nicht anfassen */
     private function skip(BasketItem $bi): bool
     {
-        return (int)$bi->itemType === (int)BasketItem::BASKET_ITEM_TYPE_ITEM_SET;
+        // Sets, sowie Hilfspositionen fuer Auftragsmerkmale (itemId -3, variationId 0)
+        return (int)$bi->itemType === (int)BasketItem::BASKET_ITEM_TYPE_ITEM_SET
+            || (int)$bi->variationId <= 0
+            || (int)$bi->itemId <= 0;
     }
 
     /**
