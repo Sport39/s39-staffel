@@ -45,8 +45,10 @@ class OrderFileController extends Controller
             if ($created && $created < time() - 86400) {
                 return $response->json(['error' => 'Auftrag zu alt'], 403);
             }
-            $files = $auth->processUnguarded(function () use ($service, $order) {
-                return $service->copyPropertyFiles($order);
+            $files = $auth->processUnguarded(function () use ($service, $order, $orderId) {
+                $keys = $service->refFiles($order);
+                $done = count($keys) ? $service->attachFiles($orderId, $keys) : [];
+                return count($done) ? $done : $service->copyPropertyFiles($order);
             });
             $debug = [];
             if ((string)$request->get('debug', '') === '1') {
