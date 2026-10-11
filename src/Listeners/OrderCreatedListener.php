@@ -4,6 +4,7 @@ namespace S39Staffel\Listeners;
 
 use Plenty\Modules\Order\Events\OrderCreated;
 use S39Staffel\Services\OrderFileService;
+use S39Staffel\Services\PrintListService;
 use Plenty\Modules\Order\Contracts\OrderRepositoryContract;
 use Plenty\Modules\Authorization\Services\AuthHelper;
 
@@ -49,6 +50,23 @@ class OrderCreatedListener
                 $auth->processUnguarded(function () use ($service, $full, $order) {
                     $service->copyPropertyFiles($full ?: $order);
                 });
+            }
+            // 3) Druckliste (Personalisierung als Tabelle) als PDF anhaengen
+            try {
+                /** @var PrintListService $printList */
+                $printList = pluginApp(PrintListService::class);
+                $pdf = $printList->build($full ?: $order);
+                if ($pdf !== '') {
+                    $auth->processUnguarded(function () use ($printList, $orderId, $pdf) {
+                        $printList->attach($orderId, $pdf);
+                    });
+                    $service->diag[] = 'druckliste ' . strlen($pdf) . ' bytes';
+                } else {
+                    $service->diag[] = 'druckliste: keine Druckdaten';
+                }
+            } catch (\Throwable $e) {
+                $service->diag[] = 'druckliste EXC ' . $e->getMessage() . ' @' . basename($e->getFile()) . ':' . $e->getLine();
+                $service->logError('druckliste', $e);
             }
             $auth->processUnguarded(function () use ($service, $orderId) {
                 $service->attachDiag($orderId, date('c') . "\n" . implode("\n", $service->diag) . "\n");
