@@ -323,6 +323,11 @@ class OrderFileService
                     continue;
                 }
                 $name = (string)$name !== '' ? (string)$name : 'Datei' . $this->extension($r);
+                // Auftrags-ID vor der Dateiendung ergaenzen: Logo.png -> Logo_71828.png
+                $dot = strrpos($name, '.');
+                $name = $dot !== false
+                    ? substr($name, 0, $dot) . '_' . $orderId . substr($name, $dot)
+                    : $name . '_' . $orderId;
                 $docs[] = [
                     'content' => base64_encode($r['body']),
                     'numberWithPrefix' => $name,
