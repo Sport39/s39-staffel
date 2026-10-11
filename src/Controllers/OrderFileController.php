@@ -19,6 +19,13 @@ class OrderFileController extends Controller
 {
     public function run(Request $request, Response $response, OrderFileService $service)
     {
+        $key = (string)$request->get('key', '');
+        if ($key !== '') {
+            $r = $service->probe($key);
+            $r['basket'] = $service->basketFiles();
+            $r['diag'] = $service->diag;
+            return $response->json($r);
+        }
         $orderId = (int)$request->get('orderId', 0);
         if ($orderId <= 0) {
             return $response->json(['error' => 'orderId fehlt'], 400);
