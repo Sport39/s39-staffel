@@ -2,6 +2,8 @@
 
 namespace S39Staffel\Services;
 
+use Plenty\Modules\Plugin\Libs\Contracts\LibraryCallContract;
+
 /**
  * Sehr kleiner PDF-Schreiber (A4, Helvetica, Text, Linien, Rechtecke).
  * Reicht fuer die Druckliste; kommt ohne externe Bibliothek aus.
@@ -18,6 +20,18 @@ class PdfWriter
     private $cur = '';
     /** @var array eingebettete Bilder: name => [w,h,dict,data,smask] */
     private $images = [];
+    /** @var LibraryCallContract */
+    private $lib;
+
+    public function __construct(LibraryCallContract $lib)
+    {
+        $this->lib = $lib;
+    }
+
+    private function u32(string $s, int $pos): int
+    {
+        return (ord($s[$pos]) << 24) | (ord($s[$pos + 1]) << 16) | (ord($s[$pos + 2]) << 8) | ord($s[$pos + 3]);
+    }
 
     /**
      * JPEG einbetten. Gibt den Ressourcennamen (/ImN) zurueck oder '' wenn nicht lesbar.
@@ -51,16 +65,15 @@ class PdfWriter
         $plte = '';
         $idat = '';
         while ($pos + 8 <= $len) {
-            $clen = unpack('N', substr($data, $pos, 4))[1];
+            $clen = $this->u32($data, $pos);
             $type = substr($data, $pos + 4, 4);
             $body = substr($data, $pos + 8, $clen);
-            if ($type === 'IHDR') {
-                $u = unpack('Nw/Nh/Cbd/Cct/Ccm/Cfl/Cil', $body);
-                $w = $u['w'];
-                $h = $u['h'];
-                $bd = $u['bd'];
-                $ct = $u['ct'];
-                $il = $u['il'];
+            if ($type === 'IHDR' && strlen($body) >= 13) {
+                $w = $this->u32($body, 0);
+                $h = $this->u32($body, 4);
+                $bd = ord($body[8]);
+                $ct = ord($body[9]);
+                $il = ord($body[12]);
             } elseif ($type === 'PLTE') {
                 $plte = $body;
             } elseif ($type === 'IDAT') {
@@ -89,59 +102,18 @@ class PdfWriter
         if (($ct !== 4 && $ct !== 6) || $bd !== 8 || $w * $h > 4000000) {
             return '';
         }
-        // Alpha-Kanal abtrennen
-        $raw = @gzuncompress($idat);
-        if ($raw === false) {
+        // Alpha-Kanal abtrennen (zlib ist im Plugin nicht erlaubt -> lib-Skript)
+        try {
+            $r = $this->lib->call('S39Staffel::png_alpha', ['png' => base64_encode($data)]);
+        } catch (\Throwable $e) {
             return '';
         }
-        $ch = $ct === 6 ? 4 : 2;
-        $stride = $w * $ch;
-        $color = '';
-        $alpha = '';
-        $prev = array_fill(0, $stride, 0);
-        $off = 0;
-        for ($y = 0; $y < $h; $y++) {
-            $ft = ord($raw[$off]);
-            $row = array_values(unpack('C*', substr($raw, $off + 1, $stride)));
-            $off += 1 + $stride;
-            for ($i = 0; $i < $stride; $i++) {
-                $a = $i >= $ch ? $row[$i - $ch] : 0;
-                $b = $prev[$i];
-                $c = $i >= $ch ? $prev[$i - $ch] : 0;
-                $x = $row[$i];
-                if ($ft === 1) {
-                    $x += $a;
-                } elseif ($ft === 2) {
-                    $x += $b;
-                } elseif ($ft === 3) {
-                    $x += (int)(($a + $b) / 2);
-                } elseif ($ft === 4) {
-                    $p = $a + $b - $c;
-                    $pa = abs($p - $a);
-                    $pb = abs($p - $b);
-                    $pc = abs($p - $c);
-                    $x += ($pa <= $pb && $pa <= $pc) ? $a : ($pb <= $pc ? $b : $c);
-                }
-                $row[$i] = $x & 255;
-            }
-            $cl = '';
-            $al = '';
-            for ($i = 0; $i < $stride; $i += $ch) {
-                if ($ch === 4) {
-                    $cl .= chr($row[$i]) . chr($row[$i + 1]) . chr($row[$i + 2]);
-                    $al .= chr($row[$i + 3]);
-                } else {
-                    $cl .= chr($row[$i]);
-                    $al .= chr($row[$i + 1]);
-                }
-            }
-            $color .= $cl;
-            $alpha .= $al;
-            $prev = $row;
+        if (!is_array($r) || empty($r['ok']) || empty($r['color']) || empty($r['alpha'])) {
+            return '';
         }
-        $cs = $ch === 4 ? '/DeviceRGB' : '/DeviceGray';
+        $cs = $ct === 6 ? '/DeviceRGB' : '/DeviceGray';
         $dict = '/Filter /FlateDecode /ColorSpace ' . $cs . ' /BitsPerComponent 8';
-        return $this->storeImage($w, $h, $dict, gzcompress($color, 6), gzcompress($alpha, 6));
+        return $this->storeImage($w, $h, $dict, base64_decode($r['color']), base64_decode($r['alpha']));
     }
 
     /** Bild in den Rahmen (x,y oben links, maxW x maxH) einpassen, zentriert */
