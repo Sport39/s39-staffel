@@ -7,7 +7,6 @@ use Plenty\Plugin\Log\Loggable;
 use Plenty\Modules\Order\Models\Order;
 use Plenty\Modules\Document\Contracts\DocumentRepositoryContract;
 use Plenty\Modules\Frontend\Services\OrderPropertyFileService;
-use Plenty\Modules\Plugin\Libs\Contracts\LibraryCallContract;
 
 /**
  * Kopiert Dateien aus Auftragsmerkmalen (Typ "Datei", z. B. hochgeladene
@@ -171,15 +170,14 @@ class OrderFileService
                 if (strpos($url, 'http') !== 0) {
                     continue;
                 }
-                /** @var LibraryCallContract $lib */
-                $lib = pluginApp(LibraryCallContract::class);
-                $r = $lib->call('S39Staffel::fetch_image', ['url' => $url]);
-                $status = is_array($r) ? (int)($r['status'] ?? 0) : 0;
-                $this->diag[] = 'lib ' . $k . ' => status ' . $status . ' type ' . (is_array($r) ? ($r['type'] ?? '') : '') . ' ' . (is_array($r) && !empty($r['error_msg']) ? substr($r['error_msg'], 0, 100) : '');
-                if ($status === 200 && !empty($r['body'])) {
+                /** @var DownloadService $dl */
+                $dl = pluginApp(DownloadService::class);
+                $file = $dl->get($url);
+                $this->diag[] = 'download ' . $k . ' => ' . ($file ? 'ok ' . strlen($file['body']) . ' ' . $file['type'] : 'failed');
+                if ($file) {
                     $obj = new \stdClass();
-                    $obj->body = base64_decode($r['body']);
-                    $obj->metaData = ['headers' => ['content-type' => (string)($r['type'] ?? '')]];
+                    $obj->body = $file['body'];
+                    $obj->metaData = ['headers' => ['content-type' => $file['type']]];
                     return $obj;
                 }
             } catch (\Throwable $e) {
