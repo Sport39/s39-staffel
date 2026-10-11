@@ -202,24 +202,34 @@ class OrderFileService
         try {
             /** @var BasketItemRepositoryContract $repo */
             $repo = pluginApp(BasketItemRepositoryContract::class);
-            $items = $repo->all();
+            $items = [];
+            try {
+                $items = $repo->all([], ['basketItemOrderParams']);
+                $this->diag[] = 'all(with) ok';
+            } catch (\Throwable $x) {
+                $this->diag[] = 'all(with) EXC ' . $x->getMessage();
+                $items = $repo->all();
+            }
+            $idx = 0;
             foreach ($items as $item) {
+                $idx++;
                 $params = [];
                 try {
                     $arr = $item->toArray();
                     $params = $arr['basketItemOrderParams'] ?? [];
-                    if (count($this->diag) < 3) {
-                        $this->diag[] = 'item ' . substr(json_encode($arr), 0, 600);
+                    if ($idx >= 3 && $idx <= 4) {
+                        $this->diag[] = 'item' . $idx . ' ' . substr(json_encode($arr), 0, 700);
                     }
                 } catch (\Throwable $x) {
                     $this->diag[] = 'item EXC ' . $x->getMessage();
                 }
                 if (!count($params)) {
                     try {
-                        $params = (array)($item->basketItemOrderParams ?? []);
-                        $this->diag[] = 'prop params ' . count($params) . ' ' . substr(json_encode($params), 0, 300);
+                        $rel = $item->basketItemOrderParams;
+                        $params = is_array($rel) ? $rel : (is_object($rel) ? $rel->toArray() : []);
+                        $this->diag[] = 'rel params ' . count($params);
                     } catch (\Throwable $x) {
-                        $this->diag[] = 'prop EXC ' . $x->getMessage();
+                        $this->diag[] = 'rel EXC ' . $x->getMessage();
                     }
                 }
                 foreach ($params as $prm) {
