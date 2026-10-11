@@ -41,7 +41,7 @@ class OrderCreatedListener
             $col = $printList->collect($full ?: $order);
             $images = $col['images'];
             $pdfs = $col['pdfs'];
-            $pdf = $printList->build($full ?: $order, $images);
+            $pdf = $printList->build($full ?: $order, $images, $col['links'] ?? []);
             $auth->processUnguarded(function () use ($printList, $orderId, $pdf, $pdfs) {
                 if ($pdf !== '') {
                     $printList->attach($orderId, $pdf);
