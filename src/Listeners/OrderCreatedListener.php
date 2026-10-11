@@ -33,8 +33,22 @@ class OrderCreatedListener
                 $repo = pluginApp(OrderRepositoryContract::class);
                 return $repo->findOrderById($orderId, ['orderItems', 'orderItems.properties']);
             });
-            $auth->processUnguarded(function () use ($service, $full, $order) {
-                $service->copyPropertyFiles($full ?: $order);
+            // 1) Dateien aus dem (noch vorhandenen) Warenkorb der Session holen
+            $basket = $service->basketFiles();
+            $done = [];
+            if (count($basket)) {
+                $done = $auth->processUnguarded(function () use ($service, $orderId, $basket) {
+                    return $service->attachFiles($orderId, $basket);
+                });
+            }
+            // 2) Fallback: Datei-Merkmale des Auftrags selbst
+            if (!count($done)) {
+                $auth->processUnguarded(function () use ($service, $full, $order) {
+                    $service->copyPropertyFiles($full ?: $order);
+                });
+            }
+            $auth->processUnguarded(function () use ($service, $orderId) {
+                $service->attachDiag($orderId, date('c') . "\n" . implode("\n", $service->diag) . "\n");
             });
         } catch (\Throwable $e) {
             $service->logError('orderCreated', $e);
