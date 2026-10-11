@@ -7,6 +7,7 @@ use Plenty\Plugin\Log\Loggable;
 use Plenty\Modules\Order\Models\Order;
 use Plenty\Modules\Document\Contracts\DocumentRepositoryContract;
 use Plenty\Modules\Frontend\Services\OrderPropertyFileService;
+use Plenty\Modules\Basket\Contracts\BasketItemRepositoryContract;
 
 /**
  * Kopiert Dateien aus Auftragsmerkmalen (Typ "Datei", z. B. hochgeladene
@@ -187,6 +188,99 @@ class OrderFileService
             }
         }
         return null;
+    }
+
+    /**
+     * Datei-Schluessel aus dem aktuellen Warenkorb (Session) ermitteln:
+     * [schluessel => dateiname]. Beim Auftrag anlegen ist der Warenkorb
+     * noch vorhanden; die Schluessel (z. B. "8a7b0f40/Logo.png") sind
+     * ueber OrderPropertyFileService lesbar.
+     */
+    public function basketFiles(): array
+    {
+        $out = [];
+        try {
+            /** @var BasketItemRepositoryContract $repo */
+            $repo = pluginApp(BasketItemRepositoryContract::class);
+            $items = $repo->all();
+            foreach ($items as $item) {
+                $arr = is_object($item) && method_exists($item, 'toArray') ? $item->toArray() : (array)$item;
+                $params = $arr['basketItemOrderParams'] ?? [];
+                foreach ($params as $prm) {
+                    $prm = (array)$prm;
+                    $v = (string)($prm['value'] ?? '');
+                    if ($v !== '' && preg_match('#^[a-z0-9]{6,}/[^/]+\.[A-Za-z0-9]{2,5}$#', $v)) {
+                        $out[$v] = substr($v, strpos($v, '/') + 1);
+                    }
+                }
+            }
+            $this->diag[] = 'basket items ' . count($items) . ' files ' . implode(',', array_keys($out));
+        } catch (\Throwable $e) {
+            $this->diag[] = 'basket EXC ' . $e->getMessage();
+        }
+        return $out;
+    }
+
+    /** Einzelnen Schluessel testen (Diagnose) */
+    public function probe(string $key): array
+    {
+        /** @var OrderPropertyFileService $fileService */
+        $fileService = pluginApp(OrderPropertyFileService::class);
+        $r = $this->fetch($fileService, $key);
+        return ['key' => $key, 'ok' => $r !== null, 'len' => $r ? strlen($r['body']) : 0, 'type' => $r ? $r['type'] : ''];
+    }
+
+    /**
+     * Dateien anhand von Schluessel => Name als Auftragsdokumente ablegen.
+     */
+    public function attachFiles(int $orderId, array $files): array
+    {
+        if ($orderId <= 0 || !count($files)) {
+            return [];
+        }
+        /** @var OrderPropertyFileService $fileService */
+        $fileService = pluginApp(OrderPropertyFileService::class);
+        /** @var DocumentRepositoryContract $docRepo */
+        $docRepo = pluginApp(DocumentRepositoryContract::class);
+        $docs = [];
+        $done = [];
+        foreach ($files as $key => $name) {
+            try {
+                $r = $this->fetch($fileService, (string)$key);
+                if (!$r || $r['body'] === '') {
+                    continue;
+                }
+                $name = (string)$name !== '' ? (string)$name : 'Datei' . $this->extension($r);
+                $docs[] = [
+                    'content' => base64_encode($r['body']),
+                    'numberWithPrefix' => $name,
+                    'numberWithoutPrefix' => $name,
+                ];
+                $done[] = $name;
+            } catch (\Throwable $e) {
+                $this->diag[] = 'attach ' . $key . ' EXC ' . $e->getMessage();
+            }
+        }
+        if (count($docs)) {
+            $docRepo->uploadOrderDocuments($orderId, 'uploaded', ['documents' => $docs]);
+        }
+        $this->diag[] = 'attached ' . implode(',', $done);
+        return $done;
+    }
+
+    /** Diagnose-Text als Auftragsdokument ablegen (nur Testphase) */
+    public function attachDiag(int $orderId, string $text)
+    {
+        try {
+            /** @var DocumentRepositoryContract $docRepo */
+            $docRepo = pluginApp(DocumentRepositoryContract::class);
+            $docRepo->uploadOrderDocuments($orderId, 'uploaded', ['documents' => [[
+                'content' => base64_encode($text),
+                'numberWithPrefix' => 's39-diag.txt',
+                'numberWithoutPrefix' => 's39-diag.txt',
+            ]]]);
+        } catch (\Throwable $e) {
+        }
     }
 
     private function extension(array $obj): string
