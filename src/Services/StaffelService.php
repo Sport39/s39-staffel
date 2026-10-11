@@ -135,6 +135,20 @@ class StaffelService
     /**
      * Ermittelt, welche Positionen angepasst werden muessen.
      */
+    /** Diagnose fuer /rest/s39staffel/staffel */
+    public function diagnose(): array
+    {
+        /** @var BasketItemRepositoryContract $itemRepo */
+        $itemRepo = pluginApp(BasketItemRepositoryContract::class);
+        $items = $itemRepo->all();
+        $this->errors = [];
+        $plan = $this->plan($items);
+        return ['active' => $this->active(), 'items' => count($items), 'plan' => $plan['log'], 'set' => $plan['set'], 'errors' => $this->errors];
+    }
+
+    /** @var array */
+    public $errors = [];
+
     private function plan($items): array
     {
         $groups = [];
@@ -270,10 +284,12 @@ class StaffelService
 
             $res = $priceRepo->search($req);
             if (!$res || !isset($res->price) || (float)$res->price <= 0) {
+                $this->errors[] = 'noprice v' . $bi->variationId . ' q' . $quantity . ' class' . $classId . ' country' . $req->countryId . ' cur' . $req->currency . ' plenty' . $req->plentyId . ' ref' . $referrerId . ' res ' . ($res ? json_encode($res) : 'null');
                 return null;
             }
             return (float)$res->price;
         } catch (\Throwable $e) {
+            $this->errors[] = 'priceForQuantity ' . $e->getMessage();
             $this->logError('priceForQuantity', $e);
             return null;
         }
