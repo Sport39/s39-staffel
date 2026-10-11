@@ -111,7 +111,7 @@ class OrderFileService
         foreach ($files as $key => $label) {
             try {
                 $obj = $this->fetch($fileService, $key);
-                $body = $obj ? $obj->body : null;
+                $body = $obj ? $obj['body'] : null;
                 if ($body === null || $body === '') {
                     $this->log('files', ['orderId' => $order->id, 'key' => $key, 'result' => 'leer']);
                     continue;
@@ -156,7 +156,12 @@ class OrderFileService
                 $len = ($obj && isset($obj->body)) ? strlen((string)$obj->body) : -1;
                 $this->diag[] = 'getFile ' . $k . ' => ' . ($obj ? get_class($obj) : 'null') . ' body ' . $len;
                 if ($obj && isset($obj->body) && $obj->body !== '') {
-                    return $obj;
+                    $ct = '';
+                    try {
+                        $ct = (string)($obj->metaData['headers']['content-type'] ?? '');
+                    } catch (\Throwable $x) {
+                    }
+                    return ['body' => (string)$obj->body, 'type' => $ct];
                 }
             } catch (\Throwable $e) {
                 $this->diag[] = 'getFile ' . $k . ' => EXC ' . $e->getMessage();
@@ -175,10 +180,7 @@ class OrderFileService
                 $file = $dl->get($url);
                 $this->diag[] = 'download ' . $k . ' => ' . ($file ? 'ok ' . strlen($file['body']) . ' ' . $file['type'] : 'failed');
                 if ($file) {
-                    $obj = new \stdClass();
-                    $obj->body = $file['body'];
-                    $obj->metaData = ['headers' => ['content-type' => $file['type']]];
-                    return $obj;
+                    return $file;
                 }
             } catch (\Throwable $e) {
                 $this->diag[] = 'getFileURL ' . $k . ' => EXC ' . $e->getMessage();
@@ -187,13 +189,9 @@ class OrderFileService
         return null;
     }
 
-    private function extension($obj): string
+    private function extension(array $obj): string
     {
-        $ct = '';
-        try {
-            $ct = (string)($obj->metaData['headers']['content-type'] ?? '');
-        } catch (\Throwable $e) {
-        }
+        $ct = (string)($obj['type'] ?? '');
         $map = ['svg' => '.svg', 'png' => '.png', 'jpeg' => '.jpg', 'gif' => '.gif', 'webp' => '.webp', 'pdf' => '.pdf', 'postscript' => '.eps', 'photoshop' => '.psd', 'illustrator' => '.ai'];
         foreach ($map as $needle => $ext) {
             if (strpos($ct, $needle) !== false) {
