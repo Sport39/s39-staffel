@@ -293,9 +293,10 @@ class OrderFileService
                         $names[] = trim($x);
                     }
                 }
-                $names[] = 'Druckvorschau_Vorderseite.png';
-                $names[] = 'Druckvorschau_Rueckseite.png';
-                $names[] = 'Druckvorschau_Hose.png';
+                foreach (['Vorderseite', 'Rueckseite', 'Hose'] as $v) {
+                    $names[] = 'Druckvorschau_' . $v . '.jpg';
+                    $names[] = 'Druckvorschau_' . $v . '.png';
+                }
                 foreach ($names as $name) {
                     if ($name === '' || strpos($name, '/') !== false || strpos($name, '..') !== false) {
                         continue;
@@ -306,6 +307,14 @@ class OrderFileService
         }
         $this->diag[] = 'ref files ' . implode(',', array_keys($out));
         return $out;
+    }
+
+    /** Datei zu einem Upload-Schluessel lesen: ['body','type'] oder null */
+    public function read(string $key)
+    {
+        /** @var OrderPropertyFileService $fileService */
+        $fileService = pluginApp(OrderPropertyFileService::class);
+        return $this->fetch($fileService, $key);
     }
 
     /** Einzelnen Schluessel testen (Diagnose) */
