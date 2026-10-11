@@ -137,7 +137,7 @@ class PrintListService
     }
 
     /** PDF-Inhalt oder '' wenn der Auftrag keine Druckdaten hat */
-    public function build($order): string
+    public function build($order, array $images = []): string
     {
         $data = $this->parse($order);
         if (!count($data['groups'])) {
@@ -220,18 +220,77 @@ class PrintListService
         }
         $this->need(30);
         $pdf->text($L, $this->y + 6, 'Automatisch erstellt aus den Bestelldaten. Platzierung und Größen werden vor dem Druck abgestimmt.', 8, false, .45);
+        // Bildseiten: Druckvorschauen und Logo
+        foreach ($images as $img) {
+            $body = (string)($img['body'] ?? '');
+            $name = '';
+            if (substr($body, 0, 3) === "\xFF\xD8\xFF") {
+                $name = $pdf->addJpeg($body);
+            } elseif (substr($body, 0, 4) === "\x89PNG") {
+                $name = $pdf->addPng($body);
+            }
+            if ($name === '') {
+                continue;
+            }
+            $this->newPage();
+            $pdf->text($L, $this->y, (string)($img['title'] ?? ''), 12, true);
+            $this->y += 8;
+            if (!empty($img['sub'])) {
+                $this->y += 12;
+                $pdf->text($L, $this->y, (string)$img['sub'], 9, false, .4);
+            }
+            $pdf->image($name, $L, $this->y + 14, $R - $L, PdfWriter::H - 50 - ($this->y + 14));
+        }
         return $pdf->output();
     }
 
+    /**
+     * Hochgeladene Dateien des Auftrags einsammeln:
+     * ['images' => [[title, sub, body], ...] (Vorschauen + Bild-Logos fuer die Druckliste),
+     *  'pdfs'   => [name => body] (PDF-Uploads, werden als eigenes Dokument angehaengt),
+     *  'skipped'=> [name, ...]]
+     */
+    public function collect($order): array
+    {
+        /** @var OrderFileService $files */
+        $files = pluginApp(OrderFileService::class);
+        $orderId = (int)$order->id;
+        $images = [];
+        $pdfs = [];
+        $skipped = [];
+        foreach ($files->refFiles($order) as $key => $name) {
+            $r = $files->read((string)$key);
+            if (!$r || $r['body'] === '') {
+                continue;
+            }
+            $body = $r['body'];
+            $base = preg_replace('/\.[A-Za-z0-9]+$/', '', (string)$name);
+            if (preg_match('/^Druckvorschau_(Vorderseite|Rueckseite|Hose)/', (string)$name, $m)) {
+                $images[] = ['title' => 'Druckvorschau ' . str_replace('Rueckseite', 'Rückseite', $m[1]), 'sub' => 'Digitale Vorschau – unverbindlich, Platzierung wird vor dem Druck abgestimmt', 'body' => $body, 'order' => 0];
+            } elseif (substr($body, 0, 4) === '%PDF') {
+                $pdfs[$base . '_' . $orderId] = $body;
+            } elseif (substr($body, 0, 3) === "\xFF\xD8\xFF" || substr($body, 0, 4) === "\x89PNG") {
+                $images[] = ['title' => 'Logo-Datei: ' . $name, 'sub' => 'Originaldatei liegt als Upload am Auftrag (Merkmal „Logo-Datei“)', 'body' => $body, 'order' => 1];
+            } else {
+                $skipped[] = (string)$name;
+            }
+        }
+        usort($images, function ($a, $b) {
+            return $a['order'] - $b['order'];
+        });
+        return ['images' => $images, 'pdfs' => $pdfs, 'skipped' => $skipped];
+    }
+
     /** PDF als Auftragsdokument (Externes Dokument) "Druckliste_<id>.pdf" ablegen */
-    public function attach(int $orderId, string $pdf): bool
+    public function attach(int $orderId, string $pdf, string $name = ''): bool
     {
         if ($orderId <= 0 || $pdf === '') {
             return false;
         }
         /** @var DocumentRepositoryContract $docRepo */
         $docRepo = pluginApp(DocumentRepositoryContract::class);
-        $name = 'Druckliste_' . $orderId . '.pdf';
+        // Plenty speichert externe Dokumente immer als "<Name>.pdf" – daher ohne eigene Endung
+        $name = $name !== '' ? $name : 'Druckliste_' . $orderId;
         $docRepo->uploadOrderDocuments($orderId, 'uploaded', ['documents' => [[
             'content' => base64_encode($pdf),
             'numberWithPrefix' => $name,
