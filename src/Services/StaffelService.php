@@ -31,6 +31,10 @@ class StaffelService
 
     /** @var bool Schutz gegen Rekursion (updateBasketItem loest selbst Events aus) */
     private static $running = false;
+    /** @var array Preis-Cache je Request: "variationId|menge" => Preis (null = kein Preis) */
+    private static $priceCache = [];
+    /** @var array|null Kontext (Kundenklasse, Land, Waehrung, ...) einmal je Request */
+    private static $ctx = null;
 
     /** @var ConfigRepository */
     private $config;
@@ -165,6 +169,16 @@ class StaffelService
         $log = [];
         foreach ($groups as $key => $g) {
             $qty = $g['qty'];
+            if (count($g['items']) < 2) {
+                // Nur eine Zeile dieses Artikels: Gesamtmenge = eigene Menge, Plenty rechnet selbst.
+                // Einzig ein frueher gesetzter Festpreis muss zurueckgenommen werden.
+                $bi = $g['items'][0];
+                if ((bool)$bi->useGivenPrice) {
+                    $set[] = ['id' => $bi->id, 'variationId' => $bi->variationId, 'quantity' => (float)$bi->quantity, 'current' => (float)$bi->price, 'price' => (float)$bi->price];
+                    $log[] = 'Artikel ' . $key . ' | ' . $bi->id . ' einzeln, Festpreis zuruecknehmen';
+                }
+                continue;
+            }
             foreach ($g['items'] as $bi) {
                 $target = $this->priceForQuantity($bi, $qty);
                 $own = $this->priceForQuantity($bi, (float)$bi->quantity);
@@ -210,6 +224,12 @@ class StaffelService
                 $qty += (float)$other->quantity;
             }
         }
+        if ($qty <= (float)$basketItem->quantity + 0.0001) {
+            // keine weitere Zeile dieses Artikels im Warenkorb -> normaler Plenty-Preis
+            $basketItem->useGivenPrice = false;
+            $basketItem->givenPrice = 0;
+            return;
+        }
         $target = $this->priceForQuantity($basketItem, $qty);
         $own = $this->priceForQuantity($basketItem, (float)$basketItem->quantity);
         $this->log('before', [
@@ -248,48 +268,68 @@ class StaffelService
      * Bruttopreis der Variante bei der angegebenen Menge laut Verkaufspreisen
      * (beruecksichtigt Kundenklasse, Land, Waehrung, Referrer).
      */
+    private function context(): array
+    {
+        if (self::$ctx !== null) {
+            return self::$ctx;
+        }
+        /** @var Application $app */
+        $app = pluginApp(Application::class);
+        /** @var CheckoutRepositoryContract $checkout */
+        $checkout = pluginApp(CheckoutRepositoryContract::class);
+        /** @var ContactRepositoryContract $contactRepo */
+        $contactRepo = pluginApp(ContactRepositoryContract::class);
+        /** @var BasketRepositoryContract $basketRepo */
+        $basketRepo = pluginApp(BasketRepositoryContract::class);
+        $classId = 0;
+        $singleAccess = 0;
+        $contact = $contactRepo->getContact();
+        if ($contact instanceof Contact) {
+            $classId = (int)$contact->classId;
+            $singleAccess = $contact->singleAccess;
+        }
+        $basket = $basketRepo->load();
+        self::$ctx = [
+            'classId' => $classId,
+            'singleAccess' => $singleAccess,
+            'referrerId' => $basket && (int)$basket->referrerId > 0 ? (int)$basket->referrerId : 1,
+            'countryId' => $checkout->getShippingCountryId(),
+            'currency' => $checkout->getCurrency(),
+            'plentyId' => $app->getPlentyId(),
+        ];
+        return self::$ctx;
+    }
+
     private function priceForQuantity(BasketItem $bi, float $quantity)
     {
+        $cacheKey = (int)$bi->variationId . '|' . $quantity;
+        if (array_key_exists($cacheKey, self::$priceCache)) {
+            return self::$priceCache[$cacheKey];
+        }
         try {
-            /** @var Application $app */
-            $app = pluginApp(Application::class);
-            /** @var CheckoutRepositoryContract $checkout */
-            $checkout = pluginApp(CheckoutRepositoryContract::class);
-            /** @var ContactRepositoryContract $contactRepo */
-            $contactRepo = pluginApp(ContactRepositoryContract::class);
-            /** @var BasketRepositoryContract $basketRepo */
-            $basketRepo = pluginApp(BasketRepositoryContract::class);
+            $c = $this->context();
             /** @var SalesPriceSearchRepositoryContract $priceRepo */
             $priceRepo = pluginApp(SalesPriceSearchRepositoryContract::class);
-
-            $classId = 0;
-            $singleAccess = 0;
-            $contact = $contactRepo->getContact();
-            if ($contact instanceof Contact) {
-                $classId = (int)$contact->classId;
-                $singleAccess = $contact->singleAccess;
-            }
-            $basket = $basketRepo->load();
-            $referrerId = $basket && (int)$basket->referrerId > 0 ? (int)$basket->referrerId : 1;
-
             /** @var SalesPriceSearchRequest $req */
             $req = pluginApp(SalesPriceSearchRequest::class);
             $req->variationId = (int)$bi->variationId;
             $req->accountId = 0;
-            $req->accountType = $singleAccess;
-            $req->countryId = $checkout->getShippingCountryId();
-            $req->currency = $checkout->getCurrency();
-            $req->customerClassId = $classId;
-            $req->plentyId = $app->getPlentyId();
+            $req->accountType = $c['singleAccess'];
+            $req->countryId = $c['countryId'];
+            $req->currency = $c['currency'];
+            $req->customerClassId = $c['classId'];
+            $req->plentyId = $c['plentyId'];
             $req->quantity = $quantity;
-            $req->referrerId = $referrerId;
+            $req->referrerId = $c['referrerId'];
             $req->type = 'default';
 
             $res = $priceRepo->search($req);
             if (!$res || !isset($res->price) || (float)$res->price <= 0) {
-                $this->errors[] = 'noprice v' . $bi->variationId . ' q' . $quantity . ' class' . $classId . ' country' . $req->countryId . ' cur' . $req->currency . ' plenty' . $req->plentyId . ' ref' . $referrerId . ' res ' . ($res ? json_encode($res) : 'null');
+                $this->errors[] = 'noprice v' . $bi->variationId . ' q' . $quantity . ' class' . $c['classId'] . ' country' . $c['countryId'] . ' cur' . $c['currency'] . ' plenty' . $c['plentyId'] . ' ref' . $c['referrerId'] . ' res ' . ($res ? json_encode($res) : 'null');
+                self::$priceCache[$cacheKey] = null;
                 return null;
             }
+            self::$priceCache[$cacheKey] = (float)$res->price;
             return (float)$res->price;
         } catch (\Throwable $e) {
             $this->errors[] = 'priceForQuantity ' . $e->getMessage();
