@@ -11,9 +11,23 @@
           "options": {
             "defaultValue": "1",
             "selectBoxValues": [
-              { "value": "1", "caption": "Ja" },
-              { "value": "0", "caption": "Nein (Plenty-Standard: je Groesse)" }
+              {
+                "value": "1",
+                "caption": "Ja"
+              },
+              {
+                "value": "0",
+                "caption": "Nein (Plenty-Standard: je Groesse)"
+              }
             ]
+          }
+        },
+        "contactIds": {
+          "type": "text",
+          "required": false,
+          "label": "Nur fuer diese Kontakt-IDs (Test, kommagetrennt). Leer = fuer alle Kunden",
+          "options": {
+            "defaultValue": ""
           }
         },
         "attachFiles": {
@@ -23,8 +37,14 @@
           "options": {
             "defaultValue": "1",
             "selectBoxValues": [
-              { "value": "1", "caption": "Ja" },
-              { "value": "0", "caption": "Nein" }
+              {
+                "value": "1",
+                "caption": "Ja"
+              },
+              {
+                "value": "0",
+                "caption": "Nein"
+              }
             ]
           }
         },
@@ -35,8 +55,14 @@
           "options": {
             "defaultValue": "0",
             "selectBoxValues": [
-              { "value": "1", "caption": "Ja" },
-              { "value": "0", "caption": "Nein" }
+              {
+                "value": "1",
+                "caption": "Ja"
+              },
+              {
+                "value": "0",
+                "caption": "Nein"
+              }
             ]
           }
         }

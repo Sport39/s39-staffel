@@ -67,7 +67,26 @@ class StaffelService
 
     public function active(): bool
     {
-        return $this->flag('active', true);
+        if (!$this->flag('active', true)) {
+            return false;
+        }
+        // Optionale Test-Sperre: nur fuer bestimmte Kontakt-IDs
+        $list = trim((string)$this->cfg('contactIds', ''));
+        if ($list === '') {
+            return true;
+        }
+        $ids = array_filter(array_map('intval', preg_split('/[^0-9]+/', $list)));
+        if (!count($ids)) {
+            return true;
+        }
+        try {
+            /** @var ContactRepositoryContract $contactRepo */
+            $contactRepo = pluginApp(ContactRepositoryContract::class);
+            $cid = (int)$contactRepo->getContactId();
+        } catch (\Throwable $e) {
+            return false;
+        }
+        return $cid > 0 && in_array($cid, $ids, true);
     }
 
     private function verbose(): bool
