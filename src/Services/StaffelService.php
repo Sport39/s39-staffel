@@ -369,7 +369,7 @@ class StaffelService
             $id = (int)($p['propertyId'] ?? ($p['property']['id'] ?? ($p['id'] ?? 0)));
             $val = $p['value'] ?? ($p['property']['value'] ?? '');
             if ($id > 0) {
-                $out[$id] = is_scalar($val) ? (string)$val : '';
+                $out[$id] = (is_array($val) || is_object($val) || $val === null) ? '' : (string)$val;
             }
         }
         return $out;
