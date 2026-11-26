@@ -12,7 +12,5 @@
     "runOnBuild": [],
     "dataProviders": [],
     "containers": [],
-    "dependencies": {
-        "guzzlehttp/guzzle": "7.*"
-    }
+    "dependencies": {}
 }
