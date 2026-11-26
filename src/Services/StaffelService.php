@@ -171,7 +171,11 @@ class StaffelService
         if ($fresh || self::$items === null) {
             /** @var BasketItemRepositoryContract $itemRepo */
             $itemRepo = pluginApp(BasketItemRepositoryContract::class);
-            self::$items = $itemRepo->all();
+            try {
+                self::$items = $itemRepo->all([], ['basketItemOrderParams']);
+            } catch (\Throwable $e) {
+                self::$items = $itemRepo->all();
+            }
         }
         return self::$items;
     }
@@ -196,8 +200,7 @@ class StaffelService
     public function diagnose(): array
     {
         /** @var BasketItemRepositoryContract $itemRepo */
-        $itemRepo = pluginApp(BasketItemRepositoryContract::class);
-        $items = $itemRepo->all();
+        $items = $this->items(true);
         $this->errors = [];
         $plan = $this->plan($items);
         return ['active' => $this->active(), 'items' => count($items), 'plan' => $plan['log'], 'set' => $plan['set'], 'errors' => $this->errors];
@@ -209,8 +212,23 @@ class StaffelService
     private function plan($items): array
     {
         $groups = [];
+        $set = [];
+        $log = [];
         foreach ($items as $bi) {
             if (!($bi instanceof BasketItem) || $this->skip($bi)) {
+                continue;
+            }
+            if (isset(self::PROMO[(int)$bi->variationId])) {
+                $promo = $this->promoPrice($bi, $items);
+                $isGiven = (bool)$bi->useGivenPrice;
+                $needs = $promo !== null
+                    ? (!$isGiven || abs((float)$bi->price - $promo) > 0.005)
+                    : $isGiven;
+                $log[] = 'SPORT39 | ' . $bi->id . ':' . $bi->variationId . ' | aktuell ' . $bi->price . ($isGiven ? ' (fix)' : '')
+                    . ' | Aktion ' . ($promo === null ? 'nein' : $promo) . ' | ' . ($needs ? 'anpassen' : 'ok');
+                if ($needs) {
+                    $set[] = ['id' => $bi->id, 'variationId' => $bi->variationId, 'quantity' => (float)$bi->quantity, 'current' => (float)$bi->price, 'price' => $promo === null ? (float)$bi->price : $promo];
+                }
                 continue;
             }
             $key = (int)$bi->itemId;
@@ -218,8 +236,6 @@ class StaffelService
             $groups[$key]['items'][] = $bi;
         }
 
-        $set = [];
-        $log = [];
         foreach ($groups as $key => $g) {
             $qty = $g['qty'];
             if (count($g['items']) < 2) {
@@ -265,6 +281,18 @@ class StaffelService
         if (!($basketItem instanceof BasketItem) || $this->skip($basketItem)) {
             return;
         }
+        if (isset(self::PROMO[(int)$basketItem->variationId])) {
+            $promo = $this->promoPrice($basketItem, $this->items());
+            if ($promo === null) {
+                $basketItem->useGivenPrice = false;
+                $basketItem->givenPrice = 0;
+            } else {
+                $basketItem->givenPrice = $promo;
+                $basketItem->useGivenPrice = true;
+                $basketItem->price = $promo;
+            }
+            return;
+        }
         $qty = (float)$basketItem->quantity;
         $itemId = (int)$basketItem->itemId;
         foreach ($this->items() as $other) {
@@ -302,6 +330,79 @@ class StaffelService
         $basketItem->givenPrice = $target;
         $basketItem->useGivenPrice = true;
         $basketItem->price = $target;
+    }
+
+    /* ---------------- SPORT39-Aktion ---------------- */
+
+    /**
+     * SPORT39-Aktion: Wird "SPORT39" unter das Herstellerlogo gedruckt (Merkmal Druckposition
+     * enthaelt "SPORT39") und kommt fuer denselben Artikel ein weiterer bezahlter Druck dazu,
+     * kostet das Vereinswappen DTF 0,00 EUR und das Wappen 3D-TPU 3,00 EUR (wie im Team-Konfigurator).
+     */
+    const PROMO = [61107 => 0.0, 370986 => 3.0];
+    /** bezahlte Druckarten (alles ausser Wappen) */
+    const PAID = [61105, 61103, 61104, 17326, 17325, 61106, 17321, 17324, 214691, 214692, 214693, 214694];
+
+    /** Bestellmerkmale einer Position als [propertyId => Wert] */
+    private function params($bi): array
+    {
+        $out = [];
+        $list = [];
+        try {
+            $arr = $bi->toArray();
+            $list = $arr['basketItemOrderParams'] ?? [];
+        } catch (\Throwable $e) {
+        }
+        if (!is_array($list) || !count($list)) {
+            try {
+                $rel = $bi->basketItemOrderParams;
+                $list = is_array($rel) ? $rel : (is_object($rel) && method_exists($rel, 'toArray') ? $rel->toArray() : []);
+            } catch (\Throwable $e) {
+                $list = [];
+            }
+        }
+        foreach ($list as $p) {
+            $p = json_decode(json_encode($p), true);
+            if (!is_array($p)) {
+                continue;
+            }
+            $id = (int)($p['propertyId'] ?? ($p['property']['id'] ?? ($p['id'] ?? 0)));
+            $val = $p['value'] ?? ($p['property']['value'] ?? '');
+            if ($id > 0) {
+                $out[$id] = is_scalar($val) ? (string)$val : '';
+            }
+        }
+        return $out;
+    }
+
+    /** Aktionspreis oder null, wenn die Aktion nicht greift */
+    private function promoPrice($bi, $items)
+    {
+        $vid = (int)$bi->variationId;
+        if (!isset(self::PROMO[$vid])) {
+            return null;
+        }
+        $p = $this->params($bi);
+        $flag = stripos($p[128] ?? '', 'SPORT39') !== false || stripos($p[127] ?? '', 'SPORT39') !== false;
+        if (!$flag) {
+            return null;
+        }
+        $art = trim($p[127] ?? '');
+        $isRef = strpos($art, '(Druck-Ref ') !== false;
+        foreach ($items as $o) {
+            if (!($o instanceof BasketItem) || $o->id == $bi->id || !in_array((int)$o->variationId, self::PAID, true)) {
+                continue;
+            }
+            if ($isRef) {
+                // Druckangaben ohne Merkmale (druck.json): ein weiterer bezahlter Druck im Warenkorb genuegt
+                return self::PROMO[$vid];
+            }
+            $op = $this->params($o);
+            if ($art !== '' && trim($op[127] ?? '') === $art) {
+                return self::PROMO[$vid];
+            }
+        }
+        return null;
     }
 
     /* ---------------- Helfer ---------------- */
