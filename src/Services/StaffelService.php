@@ -356,7 +356,7 @@ class StaffelService
         if (!is_array($list) || !count($list)) {
             try {
                 $rel = $bi->basketItemOrderParams;
-                $list = is_array($rel) ? $rel : (is_object($rel) && method_exists($rel, 'toArray') ? $rel->toArray() : []);
+                $list = is_array($rel) ? $rel : (is_object($rel) ? $rel->toArray() : []);
             } catch (\Throwable $e) {
                 $list = [];
             }
