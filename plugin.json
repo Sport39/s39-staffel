@@ -4,7 +4,7 @@
   "namespace": "S39Staffel",
   "author": "Sport39",
   "type": "general",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "proprietary",
   "isClosedSource": false,
   "serviceProvider": "S39Staffel\\Providers\\S39StaffelServiceProvider",

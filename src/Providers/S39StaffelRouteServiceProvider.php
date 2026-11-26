@@ -19,6 +19,7 @@ class S39StaffelRouteServiceProvider extends RouteServiceProvider
             $api->post('s39staffel/stash', 'StashController@store');
             $api->get('s39staffel/druckliste', 'PrintListController@run');
             $api->get('s39staffel/file', 'FileController@show');
+            $api->post('s39staffel/angebot', 'AngebotController@notify');
         });
     }
 }

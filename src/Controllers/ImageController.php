@@ -23,8 +23,8 @@ class ImageController extends Controller
     {
         $src = (string)$request->get('src', '');
 
-        // nur Artikelbilder des eigenen Plenty-CDN, nur harmlose Zeichen
-        if (!preg_match('#^https://cdn[0-9]{2}\.plentyone\.com/[a-z0-9]+/item/images/[A-Za-z0-9_\-./]+\.(jpe?g|png|gif|webp)$#i', $src)) {
+        // nur Artikelbilder und Webspace-Bilder (frontend/, z. B. Logo) des eigenen Plenty-CDN, nur harmlose Zeichen
+        if (!preg_match('#^https://cdn[0-9]{2}\.plenty(one|markets)\.com/[a-z0-9]+/(item/images|frontend)/[A-Za-z0-9_\-./]+\.(jpe?g|png|gif|webp)$#i', $src)) {
             return $response->make('forbidden', 403);
         }
 
