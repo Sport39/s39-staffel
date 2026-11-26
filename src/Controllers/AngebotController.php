@@ -85,8 +85,14 @@ class AngebotController extends Controller
                         $file = 'Angebot_Sport39_' . preg_replace('/[^A-Za-z0-9-]/', '', html_entity_decode($nr, ENT_QUOTES, 'UTF-8')) . '.pdf';
                         /** @var StorageRepositoryContract $storage */
                         $storage = pluginApp(StorageRepositoryContract::class);
-                        $obj = $storage->uploadObject('S39Staffel', 'angebote/' . $file, $body, false, ['content-type' => 'application/pdf']);
+                        $key = 'angebote/' . $file;
+                        $storage->uploadObject('S39Staffel', $key, $body, false, ['content-type' => 'application/pdf']);
+                        // fuer den Anhang braucht der Mailer das Objekt mit Inhalt
+                        $obj = $storage->getObject('S39Staffel', $key, false);
                         if ($obj) {
+                            if (!isset($obj->body) || (string)$obj->body === '') {
+                                $obj->body = $body;
+                            }
                             $att[] = $obj;
                         }
                     } else {
