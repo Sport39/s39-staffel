@@ -102,12 +102,9 @@ class PdfWriter
         if (($ct !== 4 && $ct !== 6) || $bd !== 8 || $w * $h > 4000000) {
             return '';
         }
-        // Alpha-Kanal abtrennen (zlib ist im Plugin nicht erlaubt -> lib-Skript)
-        try {
-            $r = $this->lib->call('S39Staffel::png_alpha', ['png' => base64_encode($data)]);
-        } catch (\Throwable $e) {
-            return '';
-        }
+        // Alpha-Kanal abtrennen ginge nur ueber ein lib-Skript (zlib im Plugin nicht erlaubt);
+        // das Skript gab es nie, der Aufruf wird von Plugin Build 2 abgelehnt -> PNG mit Transparenz wird uebersprungen.
+        $r = null;
         if (!is_array($r) || empty($r['ok']) || empty($r['color']) || empty($r['alpha'])) {
             return '';
         }
