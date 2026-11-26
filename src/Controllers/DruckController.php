@@ -6,6 +6,7 @@ use Plenty\Plugin\Controller;
 use Plenty\Plugin\Http\Request;
 use Plenty\Plugin\Http\Response;
 use S39Staffel\Services\StashService;
+use Plenty\Modules\Frontend\Session\Storage\Contracts\FrontendSessionStorageFactoryContract;
 
 /**
  * Druckangaben ohne Bestellmerkmale (Warenkorb bleibt schnell).
@@ -52,6 +53,19 @@ class DruckController extends Controller
                 ];
             }
             $err = $stash->put($ref, self::NAME, json_encode(['v' => 1, 'at' => date('c'), 'entries' => $out]), 'application/json');
+            // SPORT39-Aktion: Mengen je Wappen-Variante in der Sitzung merken (Bestellmerkmale sind fuer Plugins im Warenkorb nicht lesbar)
+            $promo = [];
+            foreach ($out as $e) {
+                if (stripos($e['pos'], 'SPORT39') !== false) {
+                    $promo[$e['vid']] = ($promo[$e['vid']] ?? 0) + $e['qty'];
+                }
+            }
+            try {
+                /** @var FrontendSessionStorageFactoryContract $fs */
+                $fs = pluginApp(FrontendSessionStorageFactoryContract::class);
+                $fs->getPlugin()->setValue('s39_promo', json_encode(['ref' => $ref, 'q' => $promo]));
+            } catch (\Throwable $e) {
+            }
             if ($err !== '' && count($out)) {
                 return $response->json(['ok' => false, 'error' => $err], 400);
             }

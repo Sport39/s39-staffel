@@ -13,6 +13,7 @@ use Plenty\Modules\Item\SalesPrice\Models\SalesPriceSearchRequest;
 use Plenty\Modules\Webshop\Contracts\CheckoutRepositoryContract;
 use Plenty\Modules\Webshop\Contracts\ContactRepositoryContract;
 use Plenty\Modules\Account\Contact\Models\Contact;
+use Plenty\Modules\Frontend\Session\Storage\Contracts\FrontendSessionStorageFactoryContract;
 
 /**
  * Rechnet die Staffelpreise im Warenkorb ueber alle Varianten (Groessen)
@@ -226,7 +227,7 @@ class StaffelService
                     : $isGiven;
                 $log[] = 'SPORT39 | ' . $bi->id . ':' . $bi->variationId . ' | aktuell ' . $bi->price . ($isGiven ? ' (fix)' : '')
                     . ' | Aktion ' . ($promo === null ? 'nein' : $promo) . ' | ' . ($needs ? 'anpassen' : 'ok')
-                    . ' | Merkmale ' . json_encode($this->params($bi)) . ' | roh ' . $this->rawParams($bi);
+                    . ' | Sitzung ' . json_encode($this->sessionPromo());
                 if ($needs) {
                     $set[] = ['id' => $bi->id, 'variationId' => $bi->variationId, 'quantity' => (float)$bi->quantity, 'current' => (float)$bi->price, 'price' => $promo === null ? (float)$bi->price : $promo];
                 }
@@ -344,6 +345,19 @@ class StaffelService
     /** bezahlte Druckarten (alles ausser Wappen) */
     const PAID = [61105, 61103, 61104, 17326, 17325, 61106, 17321, 17324, 214691, 214692, 214693, 214694];
 
+    /** SPORT39-Mengen je Variante aus der Sitzung */
+    private function sessionPromo(): array
+    {
+        try {
+            /** @var FrontendSessionStorageFactoryContract $fs */
+            $fs = pluginApp(FrontendSessionStorageFactoryContract::class);
+            $j = json_decode((string)$fs->getPlugin()->getValue('s39_promo'), true);
+            return is_array($j) && is_array($j['q'] ?? null) ? $j['q'] : [];
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
     /** Diagnose: Rohdaten der Bestellmerkmale (gekuerzt) */
     private function rawParams($bi): string
     {
@@ -404,6 +418,17 @@ class StaffelService
         $p = $this->params($bi);
         $flag = stripos($p[128] ?? '', 'SPORT39') !== false || stripos($p[127] ?? '', 'SPORT39') !== false;
         if (!$flag) {
+            // Weg 2: Aktion steht in der Sitzung (vom Angebot/Druck-Speicher gesetzt)
+            $sq = $this->sessionPromo();
+            $want = (float)($sq[$vid] ?? 0);
+            if ($want <= 0 || abs((float)$bi->quantity - $want) > 0.001) {
+                return null;
+            }
+            foreach ($items as $o) {
+                if ($o instanceof BasketItem && $o->id != $bi->id && in_array((int)$o->variationId, self::PAID, true)) {
+                    return self::PROMO[$vid];
+                }
+            }
             return null;
         }
         $art = trim($p[127] ?? '');
