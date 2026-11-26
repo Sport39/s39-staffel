@@ -225,7 +225,8 @@ class StaffelService
                     ? (!$isGiven || abs((float)$bi->price - $promo) > 0.005)
                     : $isGiven;
                 $log[] = 'SPORT39 | ' . $bi->id . ':' . $bi->variationId . ' | aktuell ' . $bi->price . ($isGiven ? ' (fix)' : '')
-                    . ' | Aktion ' . ($promo === null ? 'nein' : $promo) . ' | ' . ($needs ? 'anpassen' : 'ok');
+                    . ' | Aktion ' . ($promo === null ? 'nein' : $promo) . ' | ' . ($needs ? 'anpassen' : 'ok')
+                    . ' | Merkmale ' . json_encode($this->params($bi)) . ' | roh ' . $this->rawParams($bi);
                 if ($needs) {
                     $set[] = ['id' => $bi->id, 'variationId' => $bi->variationId, 'quantity' => (float)$bi->quantity, 'current' => (float)$bi->price, 'price' => $promo === null ? (float)$bi->price : $promo];
                 }
@@ -342,6 +343,24 @@ class StaffelService
     const PROMO = [61107 => 0.0, 370986 => 3.0];
     /** bezahlte Druckarten (alles ausser Wappen) */
     const PAID = [61105, 61103, 61104, 17326, 17325, 61106, 17321, 17324, 214691, 214692, 214693, 214694];
+
+    /** Diagnose: Rohdaten der Bestellmerkmale (gekuerzt) */
+    private function rawParams($bi): string
+    {
+        $r = '';
+        try {
+            $arr = $bi->toArray();
+            $r .= 'arr:' . json_encode($arr['basketItemOrderParams'] ?? null);
+        } catch (\Throwable $e) {
+            $r .= 'arr:err';
+        }
+        try {
+            $r .= ' rel:' . json_encode($bi->basketItemOrderParams);
+        } catch (\Throwable $e) {
+            $r .= ' rel:err';
+        }
+        return mb_substr($r, 0, 600);
+    }
 
     /** Bestellmerkmale einer Position als [propertyId => Wert] */
     private function params($bi): array
