@@ -274,12 +274,26 @@ class OrderFileService
         if (!($order instanceof Order)) {
             return $out;
         }
+        $vals = [];
         foreach ($order->orderItems as $item) {
             foreach ($item->properties as $p) {
-                if ((int)$p->typeId !== 82) {
-                    continue;
+                if ((int)$p->typeId === 82) {
+                    $vals[] = (string)$p->value;
                 }
-                $v = (string)$p->value;
+            }
+        }
+        try {
+            /** @var PrintListService $pl */
+            $pl = pluginApp(PrintListService::class);
+            foreach ($pl->druckEntries($order) as $e) {
+                $vals[] = (string)($e['logo'] ?? '');
+                $vals[] = (string)($e['text'] ?? '');
+            }
+        } catch (\Throwable $e) {
+        }
+        foreach ([1] as $_once) {
+            foreach ($vals as $v) {
+                $v = (string)$v;
                 if (!preg_match('/\\(Ref ([A-Za-z0-9_-]{4,40})\\)/', $v, $m)) {
                     continue;
                 }

@@ -25,6 +25,53 @@ class PrintListService
     const EACH = [61104 => 'Spielername', 61105 => 'Rückennummer', 17325 => 'Initialen / Nr.'];
     /** Druckvorbereitung (keine Druckposition) */
     const SKIP = [234564];
+    /** Druckartikel (Varianten), die ohne Merkmale im Auftrag stehen koennen (Druckangaben dann aus druck.json) */
+    const PRINT = [17321, 17324, 17325, 17326, 61103, 61104, 61105, 61106, 61107, 370986, 214691, 214692, 214693, 214694];
+
+    /** Ref der Druckangaben ("(Druck-Ref xyz)") aus den Auftragsmerkmalen */
+    public function druckRef($order): string
+    {
+        if (!($order instanceof Order)) {
+            return '';
+        }
+        foreach ($order->orderItems as $it) {
+            foreach ($it->properties as $p) {
+                if ((int)$p->typeId === 82 && preg_match('/\(Druck-Ref ([A-Za-z0-9_-]{8,40})\)/', (string)$p->value, $m)) {
+                    return $m[1];
+                }
+            }
+        }
+        return '';
+    }
+
+    /** Druckangaben aus druck.json, begrenzt auf die im Auftrag vorhandenen Mengen je Druckvariante */
+    public function druckEntries($order): array
+    {
+        $ref = $this->druckRef($order);
+        if ($ref === '') {
+            return [];
+        }
+        $have = [];
+        foreach ($order->orderItems as $it) {
+            if (in_array((int)$it->typeId, [1, 2, 3], true)) {
+                $vid = (int)$it->itemVariationId;
+                $have[$vid] = ($have[$vid] ?? 0) + (float)$it->quantity;
+            }
+        }
+        $out = [];
+        foreach (\S39Staffel\Controllers\DruckController::load($ref) as $e) {
+            $vid = (int)($e['vid'] ?? 0);
+            $q = (float)($e['qty'] ?? 0);
+            if ($vid <= 0 || $q <= 0 || ($have[$vid] ?? 0) <= 0) {
+                continue;
+            }
+            $q = min($q, $have[$vid]);
+            $have[$vid] -= $q;
+            $e['qty'] = $q;
+            $out[] = $e;
+        }
+        return $out;
+    }
 
     /**
      * Struktur:
@@ -71,6 +118,37 @@ class PrintListService
                 'qty' => (float)$it->quantity,
                 'props' => [],
             ];
+        }
+        $dj = $this->druckEntries($order);
+        if (count($dj)) {
+            $covered = [];
+            foreach ($dj as $e) {
+                $covered[(int)$e['vid']] = true;
+            }
+            $keep = [];
+            foreach ($items as $it) {
+                $art0 = isset($it['props'][self::P_ARTIKEL]) ? $it['props'][self::P_ARTIKEL] : '';
+                $isCarrier = $art0 !== '' && strpos($art0, '(Druck-Ref ') !== false;
+                if (isset($covered[$it['vid']]) && ($art0 === '' || $isCarrier)) {
+                    continue; // steht in druck.json
+                }
+                $keep[] = $it;
+            }
+            foreach ($dj as $e) {
+                $keep[] = [
+                    'vid' => (int)$e['vid'],
+                    'name' => (string)($e['name'] ?? ''),
+                    'attrs' => '',
+                    'qty' => (float)$e['qty'],
+                    'props' => [
+                        self::P_ARTIKEL => (string)($e['artikel'] ?? ''),
+                        self::P_POSITION => (string)($e['pos'] ?? ''),
+                        self::P_TEXT => (string)($e['text'] ?? ''),
+                        self::P_LOGO => (string)($e['logo'] ?? ''),
+                    ],
+                ];
+            }
+            $items = $keep;
         }
         foreach ($items as $it) {
             $art = isset($it['props'][self::P_ARTIKEL]) ? $it['props'][self::P_ARTIKEL] : '';

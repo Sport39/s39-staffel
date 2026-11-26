@@ -20,6 +20,8 @@ class S39StaffelRouteServiceProvider extends RouteServiceProvider
             $api->get('s39staffel/druckliste', 'PrintListController@run');
             $api->get('s39staffel/file', 'FileController@show');
             $api->post('s39staffel/angebot', 'AngebotController@notify');
+            $api->post('s39staffel/druck', 'DruckController@store');
+            $api->get('s39staffel/druck', 'DruckController@show');
         });
     }
 }
