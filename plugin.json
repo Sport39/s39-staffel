@@ -1,18 +1,18 @@
 {
-  "name": "S39Staffel",
-  "description": "Staffelpreise ueber alle Varianten (Groessen) eines Artikels im Warenkorb (Sport39 / Work39)",
-  "namespace": "S39Staffel",
-  "author": "Sport39",
-  "type": "general",
-  "version": "0.3.0",
-  "license": "proprietary",
-  "isClosedSource": false,
-  "serviceProvider": "S39Staffel\\Providers\\S39StaffelServiceProvider",
-  "require": [],
-  "runOnBuild": [],
-  "dataProviders": [],
-  "containers": [],
-  "dependencies": {
-    "guzzlehttp/guzzle": "7.*"
-  }
+    "name": "S39Staffel",
+    "description": "Staffelpreise ueber alle Varianten (Groessen) eines Artikels im Warenkorb (Sport39 / Work39)",
+    "namespace": "S39Staffel",
+    "author": "Sport39",
+    "type": "general",
+    "version": "0.3.1",
+    "license": "proprietary",
+    "isClosedSource": false,
+    "serviceProvider": "S39Staffel\\Providers\\S39StaffelServiceProvider",
+    "require": [],
+    "runOnBuild": [],
+    "dataProviders": [],
+    "containers": [],
+    "dependencies": {
+        "guzzlehttp/guzzle": "7.*"
+    }
 }
