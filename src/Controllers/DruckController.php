@@ -80,7 +80,14 @@ class DruckController extends Controller
         $ref = StashService::cleanRef((string)$request->get('ref', ''));
         $r = $ref !== '' ? $stash->get($ref, self::NAME) : null;
         $data = $r ? json_decode($r['body'], true) : null;
-        return $response->json(['ok' => true, 'ref' => $ref, 'entries' => is_array($data) ? ($data['entries'] ?? []) : []]);
+        $headers = [];
+        // Druckblatt (Lesezeichen im Plenty-Backend) liest die Druckangaben von einer anderen Adresse
+        $origin = (string)$request->header('Origin', '');
+        if (preg_match('#^https://[a-z0-9.-]+\.(plentysystems|plentymarkets)\.com$#i', $origin)) {
+            $headers['Access-Control-Allow-Origin'] = $origin;
+            $headers['Vary'] = 'Origin';
+        }
+        return $response->json(['ok' => true, 'ref' => $ref, 'entries' => is_array($data) ? ($data['entries'] ?? []) : []], 200, $headers);
     }
 
     /** Eintraege zu einer Ref (fuer Druckliste) */
