@@ -172,13 +172,8 @@ class PrintListService
             $text = isset($it['props'][self::P_TEXT]) ? $it['props'][self::P_TEXT] : '';
             $logo = isset($it['props'][self::P_LOGO]) ? preg_replace('/\s*\(Ref [^)]*\)/', '', $it['props'][self::P_LOGO]) : '';
             if (isset(self::EACH[$it['vid']])) {
-                foreach (explode(' | ', $text) as $entry) {
-                    $entry = trim($entry);
-                    if ($entry === '') {
-                        continue;
-                    }
-                    $sv = explode(': ', $entry, 2);
-                    $groups[$key]['each'][$it['vid']][] = [trim($sv[0]), isset($sv[1]) ? trim($sv[1]) : ''];
+                foreach ($this->splitEach($text) as $pair) {
+                    $groups[$key]['each'][$it['vid']][] = $pair;
                 }
                 $ek = 'e' . $it['vid'];
                 $prev = isset($groups[$key]['elements'][$ek]) ? (int)$groups[$key]['elements'][$ek][3] : 0;
@@ -189,6 +184,45 @@ class PrintListService
             $groups[$key]['elements'][] = [$it['name'], $pos, $detail, (int)$it['qty']];
         }
         return ['articles' => $articles, 'groups' => array_values($groups)];
+    }
+
+    /**
+     * Namen/Nummern je Stueck in [Groesse, Wert]-Paare zerlegen. Versteht drei Formate:
+     *  - Druck-Designer: "2 × M (Max, Moritz), 1 × L (Paul)"
+     *  - Druck-Designer, alle gleich: "alle 3 × Müller"
+     *  - Team-Konfigurator: "M: Max | L: Paul"
+     */
+    private function splitEach(string $text): array
+    {
+        $out = [];
+        $text = trim($text);
+        if ($text === '') {
+            return $out;
+        }
+        if (preg_match('/^alle\s+(\d+)\s*\x{00D7}\s*(.+)$/u', $text, $m)) {
+            $n = min(500, (int)$m[1]);
+            for ($i = 0; $i < $n; $i++) {
+                $out[] = ['', trim($m[2])];
+            }
+            return $out;
+        }
+        if (preg_match_all('/(\d+)\s*\x{00D7}\s*([^\s(]+)\s*\(([^)]*)\)/u', $text, $mm, PREG_SET_ORDER)) {
+            foreach ($mm as $m) {
+                foreach (preg_split('/\s*,\s*/u', trim($m[3])) as $v) {
+                    $out[] = [trim($m[2]), trim($v)];
+                }
+            }
+            return $out;
+        }
+        foreach (explode(' | ', $text) as $entry) {
+            $entry = trim($entry);
+            if ($entry === '') {
+                continue;
+            }
+            $sv = explode(': ', $entry, 2);
+            $out[] = [trim($sv[0]), isset($sv[1]) ? trim($sv[1]) : ''];
+        }
+        return $out;
     }
 
     /** @var PdfWriter */
